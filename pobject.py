@@ -1,12 +1,5 @@
-import geopandas
-import pandas as pd
-import network_lib as ntwk
-import timeseries
-import create_loadings
 import numpy as np
-from swmm_api import read_out_file
 import datetime
-from route_table import Route_table
 from pconstants import Discretization
 
 class PObject:
@@ -15,6 +8,9 @@ class PObject:
         self.classification = classification
         self.t0 = t0
         self.contents = contents
+
+    def __repr__(self):
+        return f'[{self.origin}, {self.classification}, {self.t0}]\n'
 
     def as_seconds(self, time):
         return time.hour*3600 + time.minute*60 + time.second

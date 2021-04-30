@@ -2,12 +2,16 @@ from pconstants import Discretization
 from pconstants import Loading
 import copy
 import datetime
+from environment import Environment
+import numpy as np
 
 class Postprocessing:
-    def __init__(self, routed_node, load_info, tlookup):
-        self.constituents = load_info[Loading.CONSTITUENTS]
-        self.dispersion = load_info[Loading.DISPERSION]
-        self.packets = routed_node
+    def __init__(self, routed_node, tlookup, environment=Environment()):
+        self.env = environment
+        self.constituents = environment[Loading.CONSTITUENTS]
+        self.dispersion = environment.dispersion
+        self.packets = routed_node['packets']
+        self.node = routed_node['node']
         self.tlookup = tlookup
 
     def process_arrivals(self):
@@ -15,7 +19,7 @@ class Postprocessing:
             packet.calculate_age(ta)
 
     def calculate_constituent_masses(self, constituent, graph, tlookup):
-        link = graph.get_nodeinlet(node)
+        link = graph.get_nodeinlet(self.node)
         ts = np.zeros((Discretization.SERIESLENGTH / Discretization.TIMESTEPLENGTH))
         for packet in self.packets:
             ts += packet.timeseries_masses(tlookup, link)

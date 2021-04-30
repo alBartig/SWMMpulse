@@ -3,9 +3,9 @@ import random
 import matplotlib.pyplot as plt
 import datetime
 from pconstants import Distributions
-from packet_router import Packet
+from pobject import PObject
 
-class Group:
+class OldGroup:
     def __init__(self, community, population, poops_per_person, classification, distribution=Distributions.BRISTOL, **kwargs):
         self.community = community
         self.population = population
@@ -35,33 +35,8 @@ class Group:
                 weights.append(round((w*self.nmen + v*self.nwomen)/(self.nmen+self.nwomen),3))
             self.weights = weights
 
-    def generate_packets(self, **kwargs):
-        '''
-        kwargs:
-        day - optional specification of day as datetime object
-        '''
-        nowd = kwargs.get('day')
-        if nowd == None:
-            nowd = datetime.datetime(day=2,month=3,year=2021)
 
-        nt = 8640 #number of timeslots, a step every 10 seconds
-
-        #prepare arrays
-        index = [i for i in range(nt)]
-        weights_ratio = round(nt / len(self.weights),2)
-        weights = [self.weights[int(np.floor(i/weights_ratio))] for i in index]
-        packets = []
-
-        #prepare packets
-        occs = random.choices(index, weights=weights, k=self.dailypoops)
-        for occ in occs:
-            h,r = divmod(occ,360)
-            m,s = divmod(r,60)
-            nowh = datetime.timedelta(hours=h,minutes=m,seconds=s)
-            packets.append(Packet(self.community,self.classification,nowd+nowh))
-        return packets
-
-class Community:
+class OldCommunity:
     def __init__(self,name):
         self.name = name
         self.groups = {}

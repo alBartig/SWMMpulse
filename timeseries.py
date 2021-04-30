@@ -2,6 +2,7 @@ from Exceptions import *
 from swmm_api import read_out_file
 import datetime
 import numpy as np
+import pandas as pd
 
 class Timeseries:
     import pandas as pd
@@ -121,9 +122,9 @@ class Timeseries:
 
 class Tlookup:
     def __init__(self, time_values):
-        self.date = time_values[0].date()
-        self.times = time_values
-        self.timedict = self.register_timeseries(time_values)
+        self.times = pd.to_datetime(time_values)
+        self.date = self.times[0].date()
+        self.timedict = self.register_timeseries(self.times)
 
     def register_timeseries(self,series):
         timedict = {}
@@ -204,12 +205,12 @@ class Tlookup:
 
 class qlookup:
     def __init__(self, fpath):
-        out = read_out_file(fpath+'Training6_GA.out')
+        out = read_out_file(fpath)
         lookup = out.to_frame()
         lookup = lookup.xs(('link','Flow_velocity'),axis=1,level=[0,2])
         self.table = lookup
         self.date = self.table.index[0].date()
-        self.tlookup = tlookup(self.table.index.values)
+        self.tlookup = Tlookup(self.table.index.values)
 
     def lookup_v(self, link, time):
         querytime = self.tlookup.find_closest(time)
