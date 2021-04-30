@@ -122,7 +122,8 @@ class Timeseries:
 
 class Tlookup:
     def __init__(self, time_values):
-        self.times = pd.to_datetime(time_values)
+        time_values = pd.to_datetime(time_values)
+        self.times = time_values
         self.date = self.times[0].date()
         self.timedict = self.register_timeseries(self.times)
 
@@ -140,7 +141,7 @@ class Tlookup:
             else:
                 timedict[h] = {m:[s]}
 
-        self.timedict = timedict
+        return timedict
 
     def find_closest(self, time):
         h = time.hour
@@ -157,9 +158,9 @@ class Tlookup:
                 m2 = min(minutes, key = lambda x: abs(x-m))
                 seconds_in_minute = minutes_in_hour.get(m2)
                 if m2 > m:
-                    time = datetime.time(hour=h,minute=m2,second=max[seconds_in_minute])
+                    time = datetime.time(hour=h,minute=m2,second=max(seconds_in_minute))
                 else:
-                    time = datetime.time(hour=h,minute=m2,second=min[seconds_in_minute])
+                    time = datetime.time(hour=h,minute=m2,second=min(seconds_in_minute))
         return datetime.datetime.combine(self.date, time)
 
     def find_smaller(self, time):
@@ -229,4 +230,6 @@ class qlookup:
         return s
 
 if __name__ == '__main__':
+    lpath = 'C:/Users/alber/Documents/swmm/swmmpulse/HS_calib_120_simp.out'
+    lt = qlookup(lpath)
     print()

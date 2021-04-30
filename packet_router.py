@@ -49,13 +49,17 @@ class Packet_router:
         self.community_info = com_info
 
     def route_packet(self, packet, path):
-        stops = [(packet.origin,packet.t0)]
         ct = packet.t0
+        stops = [(packet.origin,ct)]
         for stop in path[1:]:
             node = stop[0]
             link = stop[1]
             v = self.lookup.lookup_v(link,ct)
-            td = self.graph.get_linkvalue(link,'LENGTH') / v
+            try:
+                td = int(round(self.graph.get_linkvalue(link,'LENGTH') / v))
+            except:
+                print(f"Link: {link}, Conduit length: {self.graph.get_linkvalue(link,'LENGTH')}, Velocity: {v}")
+                raise ValueError
             ct = ct + datetime.timedelta(seconds=td)
             stops.append((node,ct))
         return (packet,stops)
@@ -81,6 +85,7 @@ class Packet_router:
         """
         plist = []
         [plist.extend(group.plist(nname,npop,self.env.date)) for group in self.env.groups]
+        #print('Packetlist created successfully')
         return plist
 
     def node_path(self, node):
@@ -90,25 +95,27 @@ class Packet_router:
         :param node: str, node that is to be simulated
         :return: dict, {path:list of nodes, packets:list of tuples (packet, list with arrival times)}
         '''
-        return self.graph.trace_path(node)
+        ppath = self.graph.trace_path(node)
+        #print('Path created successfully')
+        return ppath
 
     def route(self):
         '''
         routes packets from each node and appends them to DataObject Route_Table
         :return: returns True if successful
         '''
-        try:
-            nodes = self.graph.nodes
-            route_table = Route_table(nodes)
-            for node in nodes:
-                pop = self.graph.get_nodevalue(node,'population')
-                plist = self.node_plist(node,pop)
-                ppath = self.node_path(node)
-                rplist = self.route_plist(plist,ppath)
-                route_table.append_rplist(ppath)
-            return self.route_table
-        except Exception:
-            return False
+        nodes = self.graph.nodes
+        route_table = Route_table(nodes)
+        for node in nodes:
+            pop = self.graph.get_nodevalue(node,'population')
+            plist = self.node_plist(node,pop)
+            ppath = self.node_path(node)
+            rplist = self.route_plist(plist,ppath)
+            try:
+                route_table.append_rplist(ppath,rplist)
+            except Exception:
+                print('Error: Could not append routed packetlist')
+        return self.route_table
 
 class Route_table:
     def __init__(self, nodes):
@@ -164,8 +171,10 @@ class Route_table:
         return {'node':node, 'packets':nlist}
 
 if __name__ == '__main__':
-    gpath = '/mnt/c/Users/albert/documents/SWMMpulse/HS_calib_120_simp/'
-    lpath = '/mnt/c/Users/albert/Documents/SWMMpulse/HS_calib_120_simp.out'
+    gpath = 'C:/Users/alber/documents/swmm/swmmpulse/HS_calib_120_simp/'
+    lpath = 'C:/Users/alber/Documents/swmm/swmmpulse/HS_calib_120_simp.out'
+    #gpath = '/mnt/c/Users/albert/documents/SWMMpulse/HS_calib_120_simp/'
+    #lpath = '/mnt/c/Users/albert/Documents/SWMMpulse/HS_calib_120_simp.out'
     evalnode = 'MH327-088-1'
     sim = Packet_router(graph_location=gpath,lookup_location=lpath)
     rtable = sim.route()
