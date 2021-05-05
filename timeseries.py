@@ -4,32 +4,137 @@ import datetime
 import numpy as np
 import pandas as pd
 
-class Timeseries:
-    import pandas as pd
+class TDict:
+    def __init__(self, timestamps):
+        #time_values = pd.to_datetime(time_values)
+        self.timestamps = pd.to_datetime(timestamps)
+        self.date = self.timestamps[0].date()
+        self.lookup = self.register_timeseries(self.timestamps)
+
+    @classmethod
+    def from_series(cls, timestamps):
+        return cls(timestamps)
+
+    @classmethod
+    def from_bounds(cls, start, end, step):
+        """
+        Initializes Timeseries
+        Args:
+            start (datetime.datetime):
+            end (datetime.datetime):
+            step (int): seconds
+            **kwargs:
+        """
+        count,rest = divmod((start-end).total_seconds(),step)
+        if rest != 0:
+            raise StepsizeError
+        timestamps = np.array([start + datetime.timedelta(seconds=i*step) for i in range(count)])
+        return cls(timestamps)
+
+    @property
+    def start(self):
+        return self.timestamps[0]
+
+    @property
+    def end(self):
+        return self.timestamps[-1]
+
+    @property
+    def count(self):
+        return len(self.timestamps)
+
+    def register_timeseries(self,series):
+        timedict = {}
+        for step in series:
+            h = step.hour
+            m = step.minute
+            s = step.second
+            if timedict.__contains__(h):
+                if timedict[h].__contains__(m):
+                    timedict[h][m].append(s)
+                else:
+                    timedict[h][m] = [s]
+            else:
+                timedict[h] = {m:[s]}
+        return timedict
+
+    def find_closest(self, time):
+        h = time.hour
+        m = time.minute
+        s = time.second
+        minutes_in_hour = self.lookup.get(h)
+        if minutes_in_hour != None:
+            seconds_in_minute = minutes_in_hour.get(m)
+            if seconds_in_minute != None:
+                s2 = min(seconds_in_minute, key = lambda x: abs(x-m))
+                time =  datetime.time(hour=h,minute=m,second=s2)
+            else:
+                minutes = minutes_in_hour.keys()
+                m2 = min(minutes, key = lambda x: abs(x-m))
+                seconds_in_minute = minutes_in_hour.get(m2)
+                if m2 > m:
+                    time = datetime.time(hour=h,minute=m2,second=max(seconds_in_minute))
+                else:
+                    time = datetime.time(hour=h,minute=m2,second=min(seconds_in_minute))
+        return datetime.datetime.combine(self.date, time)
+
+    def find_smaller(self, time):
+        h = time.hour
+        m = time.minute
+        s = time.second
+        minutes_in_hour = self.lookup.get(h)
+        if minutes_in_hour != None:
+            seconds_in_minute = minutes_in_hour.get(m)
+            if seconds_in_minute != None:
+                s2 = min([second for second in seconds_in_minute if second<s], key = lambda x: abs(x-m))
+                time =  datetime.time(hour=h,minute=m,second=s2)
+            else:
+                minutes = minutes_in_hour.keys()
+                m2 = min([minute for minute in minutes if minute<m], key = lambda x: abs(x-m))
+                seconds_in_minute = minutes_in_hour.get(m2)
+                time = datetime.time(hour=h,minute=m2,second=max[seconds_in_minute])
+        return datetime.datetime.combine(self.date, time)
+
+    def find_larger(self, time):
+        h = time.hour
+        m = time.minute
+        s = time.second
+        minutes_in_hour = self.lookup.get(h)
+        if minutes_in_hour != None:
+            seconds_in_minute = minutes_in_hour.get(m)
+            if seconds_in_minute != None:
+                s2 = min([second for second in seconds_in_minute if second>s], key = lambda x: abs(x-m))
+                time =  datetime.time(hour=h,minute=m,second=s2)
+            else:
+                minutes = minutes_in_hour.keys()
+                m2 = min([minute for minute in minutes if minute>m], key = lambda x: abs(x-m))
+                seconds_in_minute = minutes_in_hour.get(m2)
+                time =  datetime.time(hour=h,minute=m2,second=min[seconds_in_minute])
+        return datetime.datetime.combine(self.date, time)
+
+    def get_index(self, datetime):
+        return self.timestamps.index(datetime)
+
+    def get_datetime(self, index):
+        return self.timestamps[index]
+
+class TSeries(TDict):
     """
     Timeseries object that offers additional functionality.
     Consinsts of dictionary with following structure:
     {timestamps: timestamps,
     entries: [entry1: {values: values, **kwargs},
               entry2: {values: values, **kwargs},...]
-    locations:location, constistuent:constituent, other **kwargs}
+    locations:location, constituent:constituent, other **kwargs}
     """
-    def __init__(self, start, end, step,**kwargs):
-        self.count,rest = divmod((start-end).total_seconds(),step)
-        if rest != 0:
-            raise StepsizeError
-        timestamps = np.array([start + datetime.timedelta(seconds=i*step) for i in range(self.count)])
-        self.tdict = {'timestamps':timestamps,'entries':[],**kwargs}
-        self.tlookup = Tlookup(timestamps)
+    def __init__(self, timestamps, entries ,**kwargs):
+        super().__init__(timestamps)
+        self.entries = []
+        self.entries = [self.append(entry) for entry in entries]
+        [self.__setattr__(key, value) for key, value in kwargs.items()]
 
-    @property
-    def start(self):
-        return self.tdict['timestamps'][0]
-    @property
-    def end(self):
-        return self.tdict['timestamps'][-1]
 
-    def append(self, packetdict):
+    def append(self, packetdict, expand=True):
         """
         appends a time-value - tuple from a Pobject-class object to the tdict.
         Creates an array over entire ts-lengths with 0 values in unused fields
@@ -39,12 +144,15 @@ class Timeseries:
         Returns:
             bool: true if appending was successful, False if not
         """
-        try:
-            packetdict['values'] = self.expand(packetdict.pop('values'),packetdict.pop('timestamps'))
-            self.tdict['entries'].append([packetdict])
-            return True
-        except:
-            raise PacketdictError
+        if expand is True:
+            try:
+                packetdict['values'] = self._expand(packetdict.pop('values'),packetdict.pop('timestamps'))
+                self.entries.append(packetdict)
+                return True
+            except:
+                raise PacketdictError
+        else:
+            self.entries.append(packetdict)
 
     def _expand(self, values, timestamps):
         """
@@ -58,11 +166,10 @@ class Timeseries:
         """
         expanded = np.zeros(self.count)
         for time,value in zip(timestamps,values):
-            index = np.where(self.timeseries == time)
+            index = np.where(self.timestamps == time)
             expanded[index] = value
         return expanded
 
-    @property
     def timeseries(self, start=None, end=None):
         """
         returns all entries aggregated into one series along with the timesteps
@@ -75,17 +182,17 @@ class Timeseries:
         """
         #set parameters
         if start == None:
-            start = self.tlookup.get_index(self.start)
+            start = self.get_index(self.start)
         else:
-            start = self.tlookup.get_index(self.tlookup.find_smaller(start))
+            start = self.get_index(self.tlookup.find_smaller(start))
 
         if end == None:
-            end = self.tlookup.get_index(self.end)
+            end = self.get_index(self.end)
         else:
-            end = self.tlookup.get_index(self.tlookup.find_larger(end))
+            end = self.get_index(self.find_larger(end))
 
         #aggregate entries
-        timeseries = sum([entry['values'][start:end] for entry in self.tdict['entries']])
+        timeseries = sum([entry['values'][start:end] for entry in self.entries])
         return (self.timestamps,timeseries)
 
     def plot(self, **kwargs):
@@ -111,111 +218,30 @@ class Timeseries:
         """
         #generate values
         if type(time) == tuple or type(time) == list:
-            start = self.tlookup.get_index(self.tlookup.find_smaller(time[0]))
-            end = self.tlookup.get_index(self.tlookup.find_larger(time[1]))
-            values = [(entry[key],np.mean(entry['values'][start:end])) for entry in self.tdict['entries']]
+            start = self.get_index(self.find_smaller(time[0]))
+            end = self.get_index(self.find_larger(time[1]))
+            values = [(entry[key],np.mean(entry['values'][start:end])) for entry in self.entries]
         elif type(time) == datetime.datetime:
-            index = self.tlookup.get_index(self.tlookup.find_closest(time))
-            values = [(entry[key],entry['values'][index]) for entry in self.tdict['entries']]
+            index = self.get_index(self.find_closest(time))
+            values = [(entry[key],entry['values'][index]) for entry in self.entries]
 
-
-
-class Tlookup:
-    def __init__(self, time_values):
-        time_values = pd.to_datetime(time_values)
-        self.times = time_values
-        self.date = self.times[0].date()
-        self.timedict = self.register_timeseries(self.times)
-
-    def register_timeseries(self,series):
-        timedict = {}
-        for step in series:
-            h = step.hour
-            m = step.minute
-            s = step.second
-            if timedict.__contains__(h):
-                if timedict[h].__contains__(m):
-                    timedict[h][m].append(s)
-                else:
-                    timedict[h][m] = [s]
-            else:
-                timedict[h] = {m:[s]}
-
-        return timedict
-
-    def find_closest(self, time):
-        h = time.hour
-        m = time.minute
-        s = time.second
-        minutes_in_hour = self.timedict.get(h)
-        if minutes_in_hour != None:
-            seconds_in_minute = minutes_in_hour.get(m)
-            if seconds_in_minute != None:
-                s2 = min(seconds_in_minute, key = lambda x: abs(x-m))
-                time =  datetime.time(hour=h,minute=m,second=s2)
-            else:
-                minutes = minutes_in_hour.keys()
-                m2 = min(minutes, key = lambda x: abs(x-m))
-                seconds_in_minute = minutes_in_hour.get(m2)
-                if m2 > m:
-                    time = datetime.time(hour=h,minute=m2,second=max(seconds_in_minute))
-                else:
-                    time = datetime.time(hour=h,minute=m2,second=min(seconds_in_minute))
-        return datetime.datetime.combine(self.date, time)
-
-    def find_smaller(self, time):
-        h = time.hour
-        m = time.minute
-        s = time.second
-        minutes_in_hour = self.timedict.get(h)
-        if minutes_in_hour != None:
-            seconds_in_minute = minutes_in_hour.get(m)
-            if seconds_in_minute != None:
-                s2 = min([second for second in seconds_in_minute if second<s], key = lambda x: abs(x-m))
-                time =  datetime.time(hour=h,minute=m,second=s2)
-            else:
-                minutes = minutes_in_hour.keys()
-                m2 = min([minute for minute in minutes if minute<m], key = lambda x: abs(x-m))
-                seconds_in_minute = minutes_in_hour.get(m2)
-                time = datetime.time(hour=h,minute=m2,second=max[seconds_in_minute])
-        return datetime.datetime.combine(self.date, time)
-
-    def find_larger(self, time):
-        h = time.hour
-        m = time.minute
-        s = time.second
-        minutes_in_hour = self.timedict.get(h)
-        if minutes_in_hour != None:
-            seconds_in_minute = minutes_in_hour.get(m)
-            if seconds_in_minute != None:
-                s2 = min([second for second in seconds_in_minute if second>s], key = lambda x: abs(x-m))
-                time =  datetime.time(hour=h,minute=m,second=s2)
-            else:
-                minutes = minutes_in_hour.keys()
-                m2 = min([minute for minute in minutes if minute>m], key = lambda x: abs(x-m))
-                seconds_in_minute = minutes_in_hour.get(m2)
-                time =  datetime.time(hour=h,minute=m2,second=min[seconds_in_minute])
-        return datetime.datetime.combine(self.date, time)
-
-    def get_index(self, datetime):
-        return self.times.index(datetime)
-
-    def get_datetime(self, index):
-        return self.times[index]
-
-
-class qlookup:
-    def __init__(self, fpath):
-        out = read_out_file(fpath)
-        lookup = out.to_frame()
-        lookup = lookup.xs(('link','Flow_velocity'),axis=1,level=[0,2])
-        self.table = lookup
-        self.date = self.table.index[0].date()
-        self.tlookup = Tlookup(self.table.index.values)
+class QSeries(TDict):
+    """
+    Creates a lookup table for flow velocity from a swmm out-file
+    """
+    def __init__(self, out_file, **kwargs):
+        from swmm_api import read_out_file
+        with read_out_file(out_file) as out:
+            df = out.to_frame()
+            df = df.xs(('link','Flow_velocity'),axis=1,level=[0,2])
+            timestamps = df.index.values
+            super().__init__(timestamps)
+            self.entries = {col:df[col].values for col in df}
 
     def lookup_v(self, link, time):
-        querytime = self.tlookup.find_closest(time)
-        v = self.table.at[querytime,link]
+        querytime = self.find_closest(time)
+        index = self.get_index(querytime)
+        v = self.entries[link][index]
         return v
 
     def m_to_s(self, link, time, distance):
@@ -230,6 +256,6 @@ class qlookup:
         return s
 
 if __name__ == '__main__':
-    lpath = 'C:/Users/alber/Documents/swmm/swmmpulse/HS_calib_120_simp.out'
-    lt = qlookup(lpath)
-    print()
+    of_path = 'C:/Users/alber/Documents/swmm/swmmpulse/HS_calib_120_simp.out'
+    qlut = QSeries(of_path)
+    print('Finished')
