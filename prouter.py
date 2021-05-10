@@ -1,15 +1,16 @@
 import geopandas
-from network_lib import DirectedTree as ntwk
-from timeseries import qlookup
+from network_lib import DirectedTree as ntwk, GraphConstants as gc
+from timeseries import QSeries, TSeries, TDict
 import create_loadings
-import numpy as np
+from pconstants import Discretization, Loading
 import datetime
 from environment import Environment
-from post_processer import Postprocessing
+from tqdm import tqdm
+import pickle
 
-class Packet_router:
-    def __init__(self,graph_location,lookup_location):
-        self.lookup = qlookup(lookup_location)
+class PRouter:
+    def __init__(self,graph_location,qlookup):
+        self.qlookup = qlookup
         self.graph = self.load_graph(graph_location)
         self.env = Environment()
 
@@ -54,13 +55,16 @@ class Packet_router:
         for stop in path[1:]:
             node = stop[0]
             link = stop[1]
-            v = self.lookup.lookup_v(link,ct)
+            #lookup velocity, if v == 0 break routing
+            v,delay = self.qlookup.lookup_v(link, ct)
+            if v is None:
+                break
             try:
-                td = int(round(self.graph.get_linkvalue(link,'LENGTH') / v))
+                td = int(round(self.graph.get_linkvalue(link,gc.LENGTH) / v))
             except:
                 print(f"Link: {link}, Conduit length: {self.graph.get_linkvalue(link,'LENGTH')}, Velocity: {v}")
                 raise ValueError
-            ct = ct + datetime.timedelta(seconds=td)
+            ct = ct + datetime.timedelta(seconds=td) + delay
             stops.append((node,ct))
         return (packet,stops)
 
@@ -104,51 +108,67 @@ class Packet_router:
         routes packets from each node and appends them to DataObject Route_Table
         :return: returns True if successful
         '''
+        print('Extracting nodes')
         nodes = self.graph.nodes
-        route_table = Route_table(nodes)
-        for node in nodes:
+        route_table = _Route_table(nodes)
+        print('Creating packets and routing Nodes')
+        for node in tqdm(nodes):
             pop = self.graph.get_nodevalue(node,'population')
             plist = self.node_plist(node,pop)
             ppath = self.node_path(node)
             rplist = self.route_plist(plist,ppath)
-            try:
-                route_table.append_rplist(ppath,rplist)
-            except Exception:
-                print('Error: Could not append routed packetlist')
-        return self.route_table
+            route_table.append_rplist([stop[0] for stop in ppath],rplist)
+        self.route_table = route_table
+        print(f'Route_Table created. {len(route_table.content)} Packets appended')
+        return True
 
-class Route_table:
+    def to_file(self, fpath):
+        with open(fpath,'wb') as fobj:
+            pickle.dump(self,fobj)
+        print('PRouter Object saved')
+        return True
+
+    @staticmethod
+    def from_file(fpath):
+        with open(fpath,'rb') as fobj:
+            rp = pickle.load(fobj)
+        print('PRouter Object loaded')
+        return rp
+
+class _Route_table:
     def __init__(self, nodes):
         self.nodes = nodes
         self.columns = ['packets', *self.nodes]
         self.size = len(self.columns)
         self.content = []
 
-    def append_rplist(self,ppath,rplist):
-        columns = self._find_columns(ppath)
-        for routed_packet in rplist:
-            self._append_rpacket(ppath, routed_packet, columns=columns)
-
-    def _append_rpacket(self, path, packet, columns=False):
+    def append_rplist(self,path_nodes,rplist):
+        columns = self._find_columns(path_nodes)
         try:
-            #checks whether columns to sort values into were already given, if not, columns are generated
-            if columns == False:
-                cols = self._find_columns(path)
-            else:
-                cols = columns
-            arrivaltimes = packet[1]
-            packet = packet[0]
-            #array of zeros of correct size is generated
-            line = np.zeros(self.size)
-            #add packet to first field
-            line[0] = packet
-            #fill columns that are being passed
-            for i, value in enumerate(arrivaltimes):
-                line[cols[i]] = value
-            self.content.append(line)
-            return True
-        except Exception:
-            return False
+            for routed_packet in rplist:
+                self._append_rpacket(routed_packet, columns=columns)
+        except:
+            print('Could not append routed packetlist')
+            raise BaseException
+
+    def _append_rpacket(self, packet, columns=False):
+        packet, stops = packet[0],packet[1]
+        #checks whether columns to sort values into were already given, if not, columns are generated
+        if columns == False:
+            path = [stop[0] for stop in stops]
+            columns = self._find_columns(path)
+        #array of zeros of correct size is generated
+        line = [0] * self.size
+        #add packet to first field
+        line[0] = packet
+        #fill columns that are being passed
+        try:
+            for i, stop in enumerate(stops):
+                line[columns[i]] = stop[1]
+        except:
+            raise AssertionError
+        self.content.append(line)
+        return True
 
     def _find_columns(self, path):
         '''
@@ -157,25 +177,67 @@ class Route_table:
         '''
         try:
             return [self.columns.index(stop) for stop in path]
-        except Exception:
-            return False
+        except ValueError:
+            print('Stop not in columns')
+            print(f'Path: {path}')
+            print(f'Columns: {self.columns}')
+            quit
 
-    def extract_node(self, node):
+    def _extract_node(self, location, disp):
         '''
         :param node: name of the node that is to be passed to postprocessing
         :return: list, list containing all arriving packets with information in list: (packet, ta) of
         the packets at this node
         '''
+        from copy import copy
+        node,link = location[0],location[1]
         index = self._find_columns((node,))[0]
-        nlist = [(row[0],row[index]) for row in self.content]
-        return {'node':node, 'packets':nlist}
+        nlist = [copy(row[0]).set_arrival(row[index], disp) for row in self.content\
+                 if row[index] != 0]
+        return {'node':node, 'link':link, 'packets':nlist}
+
+class Postprocessing(TDict):
+    def __init__(self, extracted_node, qlookup):
+        self.node = extracted_node['node']
+        self.link = extracted_node['link']
+        self.packets = extracted_node['packets']
+        self.qlut = qlookup
+        start, end = qlookup.timestamps[0], qlookup.timestamps[0]+datetime.timedelta(days=1)
+        timestamps = [start+i*Discretization.TIMESTEPLENGTH for i in range(int((end-start)/Discretization.TIMESTEPLENGTH))]
+        super().__init__(timestamps)
+
+    @classmethod
+    def from_prouter(cls, prouter, node):
+        location = [node,prouter.graph.get_outletlinks(node)[0]]
+        rt_slice = prouter.route_table._extract_node(location,prouter.env.dispersion)
+        return cls(rt_slice, prouter.qlookup)
+
+    def _create_tseries(self, constituent):
+        entries = [p.get_loads(constituent, self.link, self.qlut) for p in self.packets]
+        return TSeries(self.timestamps,entries)
+
+    def process_constituent(self,constituent):
+        ts = self._create_tseries(constituent)
+        self.__setattr__(constituent,ts)
+        return ts
 
 if __name__ == '__main__':
-    gpath = 'C:/Users/alber/documents/swmm/swmmpulse/HS_calib_120_simp/'
-    lpath = 'C:/Users/alber/Documents/swmm/swmmpulse/HS_calib_120_simp.out'
-    #gpath = '/mnt/c/Users/albert/documents/SWMMpulse/HS_calib_120_simp/'
-    #lpath = '/mnt/c/Users/albert/Documents/SWMMpulse/HS_calib_120_simp.out'
+    lpath = '/mnt/c/Users/albert/Documents/SWMMpulse/HS_calib_120_simp.out'
+    qlut = QSeries(lpath)
+    skip = True
+    if skip is True:
+        print('Skipping Test PRouter')
+    else:
+        #gpath = 'C:/Users/alber/documents/swmm/swmmpulse/HS_calib_120_simp/'
+        #lpath = 'C:/Users/alber/Documents/swmm/swmmpulse/HS_calib_120_simp.out'
+        gpath = '/mnt/c/Users/albert/documents/SWMMpulse/HS_calib_120_simp/'
+        sim = PRouter(graph_location=gpath, qlookup=qlut)
+        sim.route()
+        sim.to_file('/mnt/c/Users/albert/Documents/SWMMpulse/prouter.pickle')
+    #print('Finished Test PRouter')
+    print('Test Postprocessing')
     evalnode = 'MH327-088-1'
-    sim = Packet_router(graph_location=gpath,lookup_location=lpath)
-    rtable = sim.route()
-    pproc = Postprocessing(rtable.extract_node(evalnode),sim.env)
+    sim = PRouter.from_file('/mnt/c/Users/albert/Documents/SWMMpulse/prouter.pickle')
+    pproc = Postprocessing.from_prouter(sim, evalnode)
+    pproc.process_constituent(Loading.FECAL)
+    print('Test Postprocessing finished')

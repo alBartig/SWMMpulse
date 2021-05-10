@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 import numpy as np
 from pobject import PObject
 import random
+from pconstants import Loading
 
 class Units:
     GRAM = 'g'
@@ -23,9 +24,9 @@ class Constituent:
 
 
 class DefaultConstituents:
-    FECAL = Constituent('Fecal Matter', 200, Units.GRAM)
-    COV = Constituent('Cov RNA', 10000, Units.COUNT)
-    PEP = Constituent('Pepper virus', 10000, Units.COUNT)
+    FECAL = Constituent(Loading.FECAL, 200, Units.GRAM)
+    COV = Constituent(Loading.COV, 10000, Units.COUNT)
+    PEP = Constituent(Loading.PEP, 10000, Units.COUNT)
 
 class DefaultPatterns:
     _BRISTOLmen = [1.4, 0.3, 0.1, 0.0, 0.3, 1.7, 9.1, 21, 13, 9, 6.9, 4.9, 1.9, 3.6, 2.5, 2, 2.9, 2.3, 4.1, 4.0, 2.7,
@@ -90,10 +91,17 @@ class DefaultGroups:
 
 
 class Environment:
-    def __init__(self, groups=[DefaultGroups.HEALTHY, DefaultGroups.INFECTED], dispersion=1.6, date=datetime(day=2,month=3,year=2021)):
+    def __init__(self, groups=[DefaultGroups.HEALTHY, DefaultGroups.INFECTED], dispersion=1.6, date=datetime(day=17,month=8,year=2020)):
         self.dispersion = dispersion
         self.groups = groups
         self.date = date
+
+    @property
+    def constituents(self):
+        constituents = set()
+        for group in self.groups:
+            [constituents.add(c) for c in group.constituents]
+        return list(constituents)
 
 if __name__ == '__main__':
     env = Environment()

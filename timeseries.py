@@ -1,5 +1,4 @@
 from Exceptions import *
-from swmm_api import read_out_file
 import datetime
 import numpy as np
 import pandas as pd
@@ -12,23 +11,19 @@ class TDict:
         self.lookup = self.register_timeseries(self.timestamps)
 
     @classmethod
-    def from_series(cls, timestamps):
-        return cls(timestamps)
-
-    @classmethod
     def from_bounds(cls, start, end, step):
         """
         Initializes Timeseries
         Args:
             start (datetime.datetime):
             end (datetime.datetime):
-            step (int): seconds
+            step (datetime.timedelta):
             **kwargs:
         """
-        count,rest = divmod((start-end).total_seconds(),step)
-        if rest != 0:
+        count,rest = divmod((end - start),step)
+        if rest.total_seconds() != 0:
             raise StepsizeError
-        timestamps = np.array([start + datetime.timedelta(seconds=i*step) for i in range(count)])
+        timestamps = np.array([start + i * step for i in range(count)])
         return cls(timestamps)
 
     @property
@@ -86,13 +81,16 @@ class TDict:
         if minutes_in_hour != None:
             seconds_in_minute = minutes_in_hour.get(m)
             if seconds_in_minute != None:
-                s2 = min([second for second in seconds_in_minute if second<s], key = lambda x: abs(x-m))
-                time =  datetime.time(hour=h,minute=m,second=s2)
+                seconds = [second for second in seconds_in_minute if second < s]
+                if len(seconds) > 1:
+                    s2 = seconds[-1]
+                    time =  datetime.time(hour=h,minute=m,second=s2)
+                else:
+                    time = time - datetime.timedelta(seconds=s+1)
+                    time = self.find_smaller(time)
             else:
-                minutes = minutes_in_hour.keys()
-                m2 = min([minute for minute in minutes if minute<m], key = lambda x: abs(x-m))
-                seconds_in_minute = minutes_in_hour.get(m2)
-                time = datetime.time(hour=h,minute=m2,second=max[seconds_in_minute])
+                time = time - datetime.timedelta(seconds=s+1)
+                time = self.find_smaller(time)
         return datetime.datetime.combine(self.date, time)
 
     def find_larger(self, time):
@@ -103,17 +101,20 @@ class TDict:
         if minutes_in_hour != None:
             seconds_in_minute = minutes_in_hour.get(m)
             if seconds_in_minute != None:
-                s2 = min([second for second in seconds_in_minute if second>s], key = lambda x: abs(x-m))
-                time =  datetime.time(hour=h,minute=m,second=s2)
+                seconds = [second for second in seconds_in_minute if second<s]
+                if len(seconds) > 1:
+                    s2 = seconds[0]
+                    time = datetime.time(hour=h,minute=m,second=s2)
+                else:
+                    time = time + datetime.timedelta(seconds=60-s)
+                    time = self.find_larger(time)
             else:
-                minutes = minutes_in_hour.keys()
-                m2 = min([minute for minute in minutes if minute>m], key = lambda x: abs(x-m))
-                seconds_in_minute = minutes_in_hour.get(m2)
-                time =  datetime.time(hour=h,minute=m2,second=min[seconds_in_minute])
+                time = time + datetime.timedelta(seconds=60-s)
+                time = self.find_larger(time)
         return datetime.datetime.combine(self.date, time)
 
     def get_index(self, datetime):
-        return self.timestamps.index(datetime)
+        return self.timestamps.get_loc(datetime)
 
     def get_datetime(self, index):
         return self.timestamps[index]
@@ -123,36 +124,20 @@ class TSeries(TDict):
     Timeseries object that offers additional functionality.
     Consinsts of dictionary with following structure:
     {timestamps: timestamps,
-    entries: [entry1: {values: values, **kwargs},
-              entry2: {values: values, **kwargs},...]
+    entries: [{values: values, **kwargs},
+              {values: values, **kwargs},...]
     locations:location, constituent:constituent, other **kwargs}
     """
-    def __init__(self, timestamps, entries ,**kwargs):
+    def __init__(self, timestamps, entries, expand=True, eid=None, **kwargs):
         super().__init__(timestamps)
-        self.entries = []
-        self.entries = [self.append(entry) for entry in entries]
-        [self.__setattr__(key, value) for key, value in kwargs.items()]
-
-
-    def append(self, packetdict, expand=True):
-        """
-        appends a time-value - tuple from a Pobject-class object to the tdict.
-        Creates an array over entire ts-lengths with 0 values in unused fields
-        Args:
-            packetseries (dict): dictionary, must contain 'values' and 'timestamps'. Usually returned by Pobject.get_loads()
-
-        Returns:
-            bool: true if appending was successful, False if not
-        """
-        if expand is True:
+        if eid is not None:
             try:
-                packetdict['values'] = self._expand(packetdict.pop('values'),packetdict.pop('timestamps'))
-                self.entries.append(packetdict)
-                return True
+                self.eids = [entry[eid] for entry in entries]
             except:
-                raise PacketdictError
-        else:
-            self.entries.append(packetdict)
+                print(f'Could not find {eid} in entry')
+        self.entries = []
+        [self.append(entry, expand) for entry in entries]
+        [self.__setattr__(key, value) for key, value in kwargs.items()]
 
     def _expand(self, values, timestamps):
         """
@@ -169,6 +154,50 @@ class TSeries(TDict):
             index = np.where(self.timestamps == time)
             expanded[index] = value
         return expanded
+
+    def append(self, entrydict, expand=True):
+        """
+        appends a time-value - tuple from a Pobject-class object to the tdict.
+        Creates an array over entire ts-lengths with 0 values in unused fields
+        Args:
+            packetseries (dict): dictionary, must contain 'values' and 'timestamps'. Usually returned by Pobject.get_loads()
+
+        Returns:
+            bool: true if appending was successful, False if not
+        """
+        if expand is True:
+            try:
+                entrydict['values'] = self._expand(entrydict.pop('values'),entrydict.pop('timestamps'))
+                self.entries.append(entrydict)
+                return True
+            except:
+                print('Timestamps list expected, not found. Set kwarg "expand" to False to append without padding values')
+                raise PacketdictError
+        else:
+            self.entries.append(entrydict)
+
+    def entry(self, eid):
+        i = self.eids.index(eid)
+        return self.entries[i]
+
+    def distribution(self, time, key='traveltime'):
+        """
+        plots distribution of occurences in a given timewindow
+        Args:
+            time (datetime.datetime or tuple: either a given point in time or a tuple of start and end time
+            key (string): Value, the distribution is looked for. Default is 'traveltime'
+
+        Returns:
+
+        """
+        #generate values
+        if type(time) == tuple or type(time) == list:
+            start = self.get_index(self.find_smaller(time[0]))
+            end = self.get_index(self.find_larger(time[1]))
+            values = [(entry[key],np.mean(entry['values'][start:end])) for entry in self.entries]
+        elif type(time) == datetime.datetime:
+            index = self.get_index(self.find_closest(time))
+            values = [(entry[key],entry['values'][index]) for entry in self.entries]
 
     def timeseries(self, start=None, end=None):
         """
@@ -195,7 +224,7 @@ class TSeries(TDict):
         timeseries = sum([entry['values'][start:end] for entry in self.entries])
         return (self.timestamps,timeseries)
 
-    def plot(self, **kwargs):
+    def plot(self, eid=None, **kwargs):
         """
         creates plot of timeseries
         Args:
@@ -203,29 +232,15 @@ class TSeries(TDict):
         """
         import matplotlib.pyplot as plt
         fig = plt.figure()
-        ax1 = fig.add_subplots(111)
-        ax1.plot(*self.timeseries(**kwargs))
+        ax1 = fig.add_subplot(111)
+        if eid is None:
+            ax1.plot(self.timestamps, self.timeseries())
+        else:
+            ax1.plot(self.timestamps, self.entry(eid)['values'])
+        plt.savefig(f'/mnt/c/Users/albert/Documents/SWMMpulse/tseries_plot_{eid}.png')
 
-    def distribution(self, time, key='traveltime'):
-        """
-        plots distribution of occurences in a given timewindow
-        Args:
-            time (datetime.datetime or tuple: either a given point in time or a tuple of start and end time
-            key (string): Value, the distribution is looked for. Default is 'traveltime'
 
-        Returns:
-
-        """
-        #generate values
-        if type(time) == tuple or type(time) == list:
-            start = self.get_index(self.find_smaller(time[0]))
-            end = self.get_index(self.find_larger(time[1]))
-            values = [(entry[key],np.mean(entry['values'][start:end])) for entry in self.entries]
-        elif type(time) == datetime.datetime:
-            index = self.get_index(self.find_closest(time))
-            values = [(entry[key],entry['values'][index]) for entry in self.entries]
-
-class QSeries(TDict):
+class QSeries(TSeries):
     """
     Creates a lookup table for flow velocity from a swmm out-file
     """
@@ -235,14 +250,41 @@ class QSeries(TDict):
             df = out.to_frame()
             df = df.xs(('link','Flow_velocity'),axis=1,level=[0,2])
             timestamps = df.index.values
-            super().__init__(timestamps)
-            self.entries = {col:df[col].values for col in df}
+            entries = [{'values':df[col].values,'link':col} for col in df]
+            super().__init__(timestamps, entries, expand=False, eid='link')
 
     def lookup_v(self, link, time):
+        """
+        Returns velocity in link at time. If v == 0 in link at time, the first v > 0
+        is returned together with delay time. If v never rises above 0 after, it returns None,None
+        Args:
+            link (str):
+            time (str):
+
+        Returns:
+            tuple: (velocity, delay)
+        """
         querytime = self.find_closest(time)
         index = self.get_index(querytime)
-        v = self.entries[link][index]
-        return v
+        iorg = index
+        vvalues = self.entries[self.eids.index(link)]['values']
+        v = vvalues[index]
+        imax = self.count - 1
+        while v == 0:
+            if index != imax: #Reset index to 0 if at end of array
+                index += 1
+            else:
+                index = 0
+            v = vvalues[index]
+            if index == iorg: #Break if full loop was done
+                return None,None
+        else:
+            if index >= iorg: #Return if index has not looped around index > time
+                delay = self.get_datetime(index)-time
+                return v,delay
+            else: #Return if index has looped - index < time
+                delay = datetime.timedelta(days=1) - (time-self.get_datetime(index))
+                return v,delay
 
     def m_to_s(self, link, time, distance):
         '''
@@ -251,11 +293,13 @@ class QSeries(TDict):
         :param distance: float, Distance to be converted into time
         :return: float, flowtime difference in seconds
         '''
-        velocity = self.lookup_v(link,time)
+        velocity,delay = self.lookup_v(link,time)
         s = distance/velocity
         return s
 
 if __name__ == '__main__':
-    of_path = 'C:/Users/alber/Documents/swmm/swmmpulse/HS_calib_120_simp.out'
+    print('Test QSeries')
+    #of_path = 'C:/Users/alber/Documents/swmm/swmmpulse/HS_calib_120_simp.out'
+    of_path = '/mnt/c/Users/albert/Documents/SWMMpulse/HS_calib_120_simp.out'
     qlut = QSeries(of_path)
-    print('Finished')
+    print('Test QSeries finished')

@@ -1,8 +1,10 @@
+from datetime import timedelta
+
 class Distributions:
     BRISTOL = 'Bristol'
 
 class Discretization:
-    TIMESTEPLENGTH = 10 #timesteplength in s
+    TIMESTEPLENGTH = timedelta(seconds=10) #timesteplength in s
     SERIESLENGTH = 86400 #length of the timeseries to be calculated in s
 
 class Loading:
@@ -11,3 +13,6 @@ class Loading:
     LOAD = 'specific_loading'
     CLASSIFICATIONS = 'specific_classifications'
     DISPERSION = 'dispersion'
+    FECAL = 'Fecal Matter'
+    COV = 'Cov RNA'
+    PEP = 'Pepper virus'

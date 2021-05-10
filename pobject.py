@@ -10,56 +10,35 @@ class PObject:
         self.contents = contents
 
     def __repr__(self):
-        return f'[{self.origin}, {self.classification}, {self.t0}]\n'
+        return f'PObject[{self.origin}, {self.classification}, {self.t0}]\n'
 
     def as_seconds(self, time):
         return time.hour*3600 + time.minute*60 + time.second
 
-    def set_lookup(self, qlookup):
-        try:
-            self.qlookup = qlookup
-            return True
-        except Exception:
-            print('Unknown Error, could not assign lookup table')
-            return False
-
-    def set_arrival(self, tm, dispersion):
-        """
-        Assigns arrival-time at node of interest for packet. Calculates subsequent age and derived packet properties
-        like the dispersion, degradation and maximum loads of constituents
-        Args:
-            tm (datetime.datetime): time of arrival at node of interest
-            dispersion (float): dispersion coefficient [m2/s]
-        """
-        self.tm = tm
-        self.age = tm - self.t0
-        self.max_loads = {}
-        for constituent,properties in self.contents.items():
-            self.max_loads[constituent] = self.calculate_maximum_load(properties, dispersion)
-
-    def calculate_maximum_load(self, properties, dispersion):
+    def _calculate_maximum_load(self, constituent, dispersion):
         '''
         :param spec_load: Load contained in packet, g, mg, 1
         :param spec_degr: Degradation coefficient: 1/s
         :param dispersion: Dispersion coefficient: m2/s
         :return: tuple (peak load [unit/m], spread [+- m])
         '''
-        spec_load = properties['spec_load']
-        spec_degr = properties['spec_degr']
-        load_max = spec_load * self.calculate_degradation(spec_degr) * self.calculate_dispersion(dispersion)
+        self.dispersion = dispersion
+        spec_load = constituent.specific_load
+        spec_degr = constituent.degradation_coefficient
+        load_max = spec_load * self._calculate_degradation(spec_degr) * self._calculate_dispersion_peak(self.dispersion)
         return load_max
 
-    def calculate_dispersion(self, dispersion):
+    def _calculate_dispersion_peak(self, dispersion):
         '''
         :param dispersion: Dispersion coefficient: m2/s
         :return: multiplier to reduce max load
         '''
-        if self.age != None:
+        if self.age != 0:
             return 1/(2*(np.pi*dispersion*self.age)**0.5)
         else:
-            print('packet does not have age information')
+            return 1
 
-    def calculate_spread(self, dispersion):
+    def _calculate_dispersion_spread(self, dispersion):
         '''
         :param dispersion: Dispersion coefficient: m2/s
         :return: spread in front of and behind expected mean, 2SD for 95% of load in m
@@ -69,7 +48,7 @@ class PObject:
         else:
             print('packet does not have age information')
 
-    def calculate_degradation(self, spec_degr):
+    def _calculate_degradation(self, spec_degr):
         '''
         :param spec_degr: degradation coefficient: 1/s
         :return: multiplier to reduce max load
@@ -79,7 +58,7 @@ class PObject:
         else:
             print('packet does not have age information')
 
-    def calculate_time_boundaries(self, dispersion,link):
+    def _calculate_time_boundaries(self, dispersion, link, lookup):
         """
         Calculates first and last time parts of the load can be measured at node of interest.
         Args:
@@ -87,14 +66,14 @@ class PObject:
             link (str): name of link upstream of node
         """
         #calculating the spread, start end end times of the dispersed packet
-        spread_distance = self.calculate_spread(dispersion)
+        spread_distance = self._calculate_dispersion_spread(dispersion)
         try:
-            spread_time = datetime.timedelta(self.qlookup.m_to_s(link,time=self.tm))
+            spread_time = datetime.timedelta(lookup.m_to_s(link,self.tm,spread_distance))
         except Exception:
             print('Unknown Error: Could not convert spread distance [m] to time [s]')
             exit()
-        self.ta = self.ta - datetime.timedelta(seconds=spread_time)
-        self.te = self.ta + datetime.timedelta(seconds=spread_time)
+        self.ta = self.tm - spread_time
+        self.te = self.tm + spread_time
 
     def interpolate(self, t, constituent):
         """
@@ -113,8 +92,7 @@ class PObject:
         else:
             return 0.0
 
-    @property
-    def prepare_timesteps(self):
+    def prepare_timesteps(self, lookup):
         """
         prepares an array with all timesteps for a load-distribution
         Args:
@@ -123,13 +101,13 @@ class PObject:
         Returns:
             timesteps (list)
         """
-        first = self.tlookup.find_smaller(self.ta)
-        last = self.tlookup.find_larger(self.te)
+        first = lookup.find_smaller(self.ta)
+        last = lookup.find_larger(self.te)
         diff = last - first
         size = int(diff.seconds/Discretization.TIMESTEPLENGTH + 1)
         return [first+datetime.timedelta(seconds=step*Discretization.TIMESTEPLENGTH) for step in range(size)]
 
-    def prepare_loadheights(self, timesteps, constituent):
+    def _prepare_loadheights(self, timesteps, constituent):
         """
         Prepares an array with a corresponding specific load for each timestep in input array and constituent
         Args:
@@ -143,7 +121,7 @@ class PObject:
             heights.append(self.interpolate(step,constituent))
         return heights
 
-    def calculate_trapezoid(self, h1, h2, dt=Discretization.TIMESTEPLENGTH):
+    def _calculate_trapezoid(self, h1, h2, dt=Discretization.TIMESTEPLENGTH):
         """
         integrates the values h1 and h2 across timesteplength dt, which is assumed
          to be the assigned TIMESTEPLENGTH if no other value is given.
@@ -159,7 +137,7 @@ class PObject:
             dt = dt.seconds
         return 0.5 * (h1+h2) * dt
 
-    def integrate_timestep_loads(self, heights,timesteps):
+    def _integrate_timestep_loads(self, heights, timesteps):
         """
         integrates the load for each timestep over the timesteplength
         Args:
@@ -172,15 +150,15 @@ class PObject:
         for i,time in enumerate(timesteps):
             if i == 0:
                 #first load
-                loads.append(self.calculate_trapezoid(0,heights[1],timesteps[0]-self.ta))
+                loads.append(self._calculate_trapezoid(0, heights[1], timesteps[0] - self.ta))
             elif i == len(timesteps-1):
                 #last load
-                loads.append(self.calculate_trapezoid(0,heights[i],self.te-timesteps[i]))
+                loads.append(self._calculate_trapezoid(0, heights[i], self.te - timesteps[i]))
             else:
-                loads.append(self.calculate_trapezoid(heights[i],heights[i+1]))
+                loads.append(self._calculate_trapezoid(heights[i], heights[i + 1]))
         return loads
 
-    def get_loads(self, constituent):
+    def get_loads(self, constituent, link, lookup):
         """
         Calculates the load distribution of given constituent and returns loads per timestep and timesteps
         Args:
@@ -188,7 +166,35 @@ class PObject:
         Returns:
             (tuple): Tuple of lists (loads,timesteps)
         """
-        timesteps = self.prepare_timesteps()
-        heights = self.prepare_loadheights(timesteps,constituent)
-        loads = self.integrate_timestep_loads(heights,timesteps)
+        self._calculate_time_boundaries(self.dispersion,link,lookup)
+        timesteps = self.prepare_timesteps(lookup)
+        heights = self._prepare_loadheights(timesteps, constituent)
+        loads = self._integrate_timestep_loads(heights, timesteps)
         return {'values':loads,'timestamps':timesteps,'origin':self.origin,'traveltime':self.age,'class':self.classification}
+
+    def set_lookup(self, qlookup):
+        try:
+            self.qlookup = qlookup
+            return True
+        except Exception:
+            print('Unknown Error, could not assign lookup table')
+            return False
+
+    def set_arrival(self, tm, dispersion):
+        """
+        Assigns arrival-time at node of interest for packet. Calculates subsequent age and derived packet properties
+        like the dispersion, degradation and maximum loads of constituents
+        Args:
+            tm (datetime.datetime): time of arrival at node of interest
+            dispersion (float): dispersion coefficient [m2/s]
+        """
+        self.tm = tm
+        try:
+            td = tm - self.t0
+            self.age = td.total_seconds()
+        except:
+            raise ValueError
+        self.max_loads = {}
+        for constituent in self.contents:
+            self.max_loads[constituent.name] = self._calculate_maximum_load(constituent, dispersion)
+        return self
