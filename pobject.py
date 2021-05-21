@@ -68,7 +68,8 @@ class PObject:
         #calculating the spread, start end end times of the dispersed packet
         spread_distance = self._calculate_dispersion_spread(dispersion)
         try:
-            spread_time = datetime.timedelta(lookup.m_to_s(link,self.tm,spread_distance))
+            calc_spread = lookup.m_to_s(link,self.tm,spread_distance)
+            spread_time =datetime.timedelta(seconds=max(calc_spread,6))
         except Exception:
             print('Unknown Error: Could not convert spread distance [m] to time [s]')
             exit()
@@ -85,10 +86,10 @@ class PObject:
             float: specific load at time t
         """
         h = self.max_loads[constituent]
-        if self.ts < t <= self.ta:
-            return (t-self.ts).seconds*h/(self.ta-self.ts).seconds
-        elif self.ta < t < self.te:
-            return (self.te-t).seconds*h/(self.te-self.ta).seconds
+        if self.ta < t <= self.tm:
+            return (t-self.ta).seconds*h/(self.tm-self.ta).seconds
+        elif self.tm < t < self.te:
+            return (self.te-t).seconds*h/(self.te-self.tm).seconds
         else:
             return 0.0
 
@@ -101,11 +102,11 @@ class PObject:
         Returns:
             timesteps (list)
         """
-        first = lookup.find_smaller(self.ta)
-        last = lookup.find_larger(self.te)
-        diff = last - first
-        size = int(diff.seconds/Discretization.TIMESTEPLENGTH + 1)
-        return [first+datetime.timedelta(seconds=step*Discretization.TIMESTEPLENGTH) for step in range(size)]
+        first,shift_front = lookup.find_smaller_dt(self.ta)
+        last,shift_back = lookup.find_larger_dt(self.te)
+        diff = (last + shift_back) - (first + shift_front)
+        size = int(diff/Discretization.TIMESTEPLENGTH + 1)
+        return [first+step*Discretization.TIMESTEPLENGTH for step in range(size)]
 
     def _prepare_loadheights(self, timesteps, constituent):
         """
@@ -148,17 +149,20 @@ class PObject:
         """
         loads = []
         for i,time in enumerate(timesteps):
-            if i == 0:
-                #first load
-                loads.append(self._calculate_trapezoid(0, heights[1], timesteps[0] - self.ta))
-            elif i == len(timesteps-1):
-                #last load
-                loads.append(self._calculate_trapezoid(0, heights[i], self.te - timesteps[i]))
-            else:
-                loads.append(self._calculate_trapezoid(heights[i], heights[i + 1]))
+            try:
+                if i == 0:
+                    #first load
+                    loads.append(self._calculate_trapezoid(0, heights[1], timesteps[0] - self.ta))
+                elif i == len(timesteps)-1:
+                    #last load
+                    loads.append(self._calculate_trapezoid(0, heights[i], self.te - timesteps[i]))
+                else:
+                    loads.append(self._calculate_trapezoid(heights[i], heights[i + 1]))
+            except:
+                raise Exception
         return loads
 
-    def get_loads(self, constituent, link, lookup):
+    def get_loads(self, constituent, link, qlookup, mapseries):
         """
         Calculates the load distribution of given constituent and returns loads per timestep and timesteps
         Args:
@@ -166,8 +170,8 @@ class PObject:
         Returns:
             (tuple): Tuple of lists (loads,timesteps)
         """
-        self._calculate_time_boundaries(self.dispersion,link,lookup)
-        timesteps = self.prepare_timesteps(lookup)
+        self._calculate_time_boundaries(self.dispersion,link,qlookup)
+        timesteps = self.prepare_timesteps(mapseries)
         heights = self._prepare_loadheights(timesteps, constituent)
         loads = self._integrate_timestep_loads(heights, timesteps)
         return {'values':loads,'timestamps':timesteps,'origin':self.origin,'traveltime':self.age,'class':self.classification}

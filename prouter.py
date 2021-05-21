@@ -7,30 +7,13 @@ import datetime
 from environment import Environment
 from tqdm import tqdm
 import pickle
+from Exceptions import RoutingError, PlausibilityError
 
 class PRouter:
-    def __init__(self,graph_location,qlookup):
+    def __init__(self,graph,qlookup):
         self.qlookup = qlookup
-        self.graph = self.load_graph(graph_location)
+        self.graph = graph
         self.env = Environment()
-
-    def load_graph(self, fpath):
-        links = []
-        linkfiles = ['Conduits','Pumps','Orifices']
-        nodefiles = ['Junctions']
-        for file in linkfiles[:1]:
-            gdf = geopandas.read_file(fpath+file +'.shp')
-            [links.append(list(link)) for link in gdf[['NAME','INLETNODE','OUTLETNODE','LENGTH']].to_numpy()]
-        for i in range(len(links)):
-            links[i][3]=('length',links[i][3])
-        graph = ntwk(links)
-        nodes = []
-        for file in nodefiles:
-            gdf = geopandas.read_file(fpath+file +'.shp')
-            [nodes.append(list(node)) for node in gdf[['NAME', 'POP']].to_numpy()]
-        for n,p in nodes:
-            graph.add_nodevalues(n,[('name',n),('population',p)])
-        return graph
 
     def set_community_info(self, groups:iter, weights:iter, **kwargs):
         '''
@@ -64,8 +47,15 @@ class PRouter:
             except:
                 print(f"Link: {link}, Conduit length: {self.graph.get_linkvalue(link,'LENGTH')}, Velocity: {v}")
                 raise ValueError
+            if td < 0:
+                print('flowtime negative')
+                raise PlausibilityError
             ct = ct + datetime.timedelta(seconds=td) + delay
             stops.append((node,ct))
+            #check for plausibility:
+            for stop in stops:
+                if stop[1] < packet.t0:
+                    raise RoutingError(packet, stops)
         return (packet,stops)
 
     def route_plist(self,plist, path):
@@ -118,9 +108,8 @@ class PRouter:
             ppath = self.node_path(node)
             rplist = self.route_plist(plist,ppath)
             route_table.append_rplist([stop[0] for stop in ppath],rplist)
-        self.route_table = route_table
         print(f'Route_Table created. {len(route_table.content)} Packets appended')
-        return True
+        return route_table
 
     def to_file(self, fpath):
         with open(fpath,'wb') as fobj:
@@ -196,6 +185,19 @@ class _Route_table:
                  if row[index] != 0]
         return {'node':node, 'link':link, 'packets':nlist}
 
+    def to_file(self, fpath):
+        with open(fpath,'wb') as fobj:
+            pickle.dump(self,fobj)
+        print('RTable Object saved')
+        return True
+
+    @staticmethod
+    def from_file(fpath):
+        with open(fpath,'rb') as fobj:
+            rp = pickle.load(fobj)
+        print('RTable Object loaded')
+        return rp
+
 class Postprocessing(TDict):
     def __init__(self, extracted_node, qlookup):
         self.node = extracted_node['node']
@@ -212,8 +214,18 @@ class Postprocessing(TDict):
         rt_slice = prouter.route_table._extract_node(location,prouter.env.dispersion)
         return cls(rt_slice, prouter.qlookup)
 
+    @classmethod
+    def from_rtable(cls, rtable, node, qlookup, graph, env=Environment()):
+        location = [node,graph.get_outletlinks(node)[0]]
+        rt_slice = rtable._extract_node(location,env.dispersion)
+        return cls(rt_slice, qlookup)
+
     def _create_tseries(self, constituent):
-        entries = [p.get_loads(constituent, self.link, self.qlut) for p in self.packets]
+        print('processing packets\n')
+        entries = [p.get_loads(constituent, self.link, self.qlut, self) for p in tqdm(self.packets)]
+        with open('/mnt/c/Users/albert/Documents/SWMMpulse/entries.pickle', 'wb') as fobj:
+            pickle.dump(entries, fobj)
+            print('entries saved')
         return TSeries(self.timestamps,entries)
 
     def process_constituent(self,constituent):
@@ -223,21 +235,22 @@ class Postprocessing(TDict):
 
 if __name__ == '__main__':
     lpath = '/mnt/c/Users/albert/Documents/SWMMpulse/HS_calib_120_simp.out'
+    gpath = '/mnt/c/Users/albert/documents/SWMMpulse/HS_calib_120_simp/'
     qlut = QSeries(lpath)
+    graph = ntwk.from_directory(gpath)
     skip = True
     if skip is True:
         print('Skipping Test PRouter')
     else:
         #gpath = 'C:/Users/alber/documents/swmm/swmmpulse/HS_calib_120_simp/'
         #lpath = 'C:/Users/alber/Documents/swmm/swmmpulse/HS_calib_120_simp.out'
-        gpath = '/mnt/c/Users/albert/documents/SWMMpulse/HS_calib_120_simp/'
-        sim = PRouter(graph_location=gpath, qlookup=qlut)
-        sim.route()
-        sim.to_file('/mnt/c/Users/albert/Documents/SWMMpulse/prouter.pickle')
+        router = PRouter(graph=graph, qlookup=qlut)
+        routetable = router.route()
+        routetable.to_file('/mnt/c/Users/albert/Documents/SWMMpulse/routetable.pickle')
     #print('Finished Test PRouter')
     print('Test Postprocessing')
     evalnode = 'MH327-088-1'
-    sim = PRouter.from_file('/mnt/c/Users/albert/Documents/SWMMpulse/prouter.pickle')
-    pproc = Postprocessing.from_prouter(sim, evalnode)
+    routetable = _Route_table.from_file('/mnt/c/Users/albert/Documents/SWMMpulse/routetable.pickle')
+    pproc = Postprocessing.from_rtable(routetable, evalnode, qlut, graph)
     pproc.process_constituent(Loading.FECAL)
     print('Test Postprocessing finished')

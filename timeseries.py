@@ -93,6 +93,37 @@ class TDict:
                 time = self.find_smaller(time)
         return datetime.datetime.combine(self.date, time)
 
+    def find_larger_dt(self, time):
+        larger = [ts for ts in self.timestamps if ts >= time]
+        if larger == []:
+            return self.timestamps[0],datetime.timedelta(days=1)
+        else:
+            try:
+                return larger[0],datetime.timedelta(days=0)
+            except:
+                print(f'larger: {larger}, time: {time}')
+
+
+    def find_smaller_dt(self, time):
+        smaller = [ts for ts in self.timestamps if ts <= time]
+        if smaller == []:
+            return self.timestamps[-1],datetime.timedelta(days=-1)
+        else:
+            return smaller[-1],datetime.timedelta(days=0)
+
+    def find_closest_dt(self, time):
+        smaller,shift_front = self.find_smaller_dt(time)
+        ismaller = self.get_index(smaller)
+        if ismaller < len(self.timestamps)-1:
+            ilarger = ismaller + 1
+            larger = self.timestamps[ilarger]
+            if larger-time < time-smaller:
+                return larger
+            else:
+                return smaller
+        else:
+            return smaller
+
     def find_larger(self, time):
         h = time.hour
         m = time.minute
@@ -114,7 +145,10 @@ class TDict:
         return datetime.datetime.combine(self.date, time)
 
     def get_index(self, datetime):
-        return self.timestamps.get_loc(datetime)
+        try:
+            return self.timestamps.get_loc(datetime)
+        except:
+            raise BaseException
 
     def get_datetime(self, index):
         return self.timestamps[index]
@@ -149,10 +183,13 @@ class TSeries(TDict):
         Returns:
             np.array: Array of the size of the timeseries with passed values at correct fields
         """
-        expanded = np.zeros(self.count)
-        for time,value in zip(timestamps,values):
-            index = np.where(self.timestamps == time)
-            expanded[index] = value
+        try:
+            expanded = np.zeros(self.count)
+            for time,value in zip(timestamps,values):
+                index = np.where(self.timestamps == time)
+                expanded[index] = value
+        except:
+            raise Exception
         return expanded
 
     def append(self, entrydict, expand=True):
@@ -166,13 +203,9 @@ class TSeries(TDict):
             bool: true if appending was successful, False if not
         """
         if expand is True:
-            try:
-                entrydict['values'] = self._expand(entrydict.pop('values'),entrydict.pop('timestamps'))
-                self.entries.append(entrydict)
-                return True
-            except:
-                print('Timestamps list expected, not found. Set kwarg "expand" to False to append without padding values')
-                raise PacketdictError
+            entrydict['values'] = self._expand(entrydict.pop('values'),entrydict.pop('timestamps'))
+            self.entries.append(entrydict)
+            return True
         else:
             self.entries.append(entrydict)
 
@@ -264,7 +297,9 @@ class QSeries(TSeries):
         Returns:
             tuple: (velocity, delay)
         """
-        querytime = self.find_closest(time)
+        if time.date() != self.date:
+            time = datetime.datetime.combine(self.date, time.time())
+        querytime = self.find_closest_dt(time)
         index = self.get_index(querytime)
         iorg = index
         vvalues = self.entries[self.eids.index(link)]['values']
@@ -278,13 +313,16 @@ class QSeries(TSeries):
             v = vvalues[index]
             if index == iorg: #Break if full loop was done
                 return None,None
+        if index > iorg: #Return if index has not looped around index > time
+            delay = self.get_datetime(index)-time
+        elif index < iorg: #Return if index has looped - index < time
+            delay = datetime.timedelta(days=1) - (time-self.get_datetime(index))
         else:
-            if index >= iorg: #Return if index has not looped around index > time
-                delay = self.get_datetime(index)-time
-                return v,delay
-            else: #Return if index has looped - index < time
-                delay = datetime.timedelta(days=1) - (time-self.get_datetime(index))
-                return v,delay
+            delay = datetime.timedelta(seconds=0)
+        if delay < datetime.timedelta(seconds=0):
+            print(f'delay: {delay}, time: {time}, ')
+            raise PlausibilityError()
+        return v,delay
 
     def m_to_s(self, link, time, distance):
         '''
