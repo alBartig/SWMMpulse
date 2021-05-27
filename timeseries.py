@@ -186,7 +186,7 @@ class TSeries(TDict):
         try:
             expanded = np.zeros(self.count)
             for time,value in zip(timestamps,values):
-                index = np.where(self.timestamps == time)
+                index = self.timestamps.get_loc(time)
                 expanded[index] = value
         except:
             raise Exception

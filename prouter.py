@@ -220,37 +220,39 @@ class Postprocessing(TDict):
         rt_slice = rtable._extract_node(location,env.dispersion)
         return cls(rt_slice, qlookup)
 
-    def _create_tseries(self, constituent):
+    def _create_tseries(self, fpath, constituent):
         print('processing packets\n')
-        entries = [p.get_loads(constituent, self.link, self.qlut, self) for p in tqdm(self.packets)]
-        with open('/mnt/c/Users/albert/Documents/SWMMpulse/entries.pickle', 'wb') as fobj:
+        entries = [p.get_loads(constituent, self.link, self.qlut, self) for p in tqdm(self.packets[:100])]
+        with open(fpath, 'wb') as fobj:
             pickle.dump(entries, fobj)
             print('entries saved')
         return TSeries(self.timestamps,entries)
 
-    def process_constituent(self,constituent):
-        ts = self._create_tseries(constituent)
+    def process_constituent(self,fpath, constituent):
+        ts = self._create_tseries(fpath, constituent)
         self.__setattr__(constituent,ts)
         return ts
 
 if __name__ == '__main__':
-    lpath = '/mnt/c/Users/albert/Documents/SWMMpulse/HS_calib_120_simp.out'
-    gpath = '/mnt/c/Users/albert/documents/SWMMpulse/HS_calib_120_simp/'
+    #lpath = '/mnt/c/Users/albert/Documents/SWMMpulse/HS_calib_120_simp.out'
+    #gpath = '/mnt/c/Users/albert/documents/SWMMpulse/HS_calib_120_simp/'
+    gpath = 'C:/Users/alber/documents/swmm/swmmpulse/HS_calib_120_simp/'
+    lpath = 'C:/Users/alber/Documents/swmm/swmmpulse/HS_calib_120_simp.out'
     qlut = QSeries(lpath)
     graph = ntwk.from_directory(gpath)
     skip = True
     if skip is True:
         print('Skipping Test PRouter')
     else:
-        #gpath = 'C:/Users/alber/documents/swmm/swmmpulse/HS_calib_120_simp/'
-        #lpath = 'C:/Users/alber/Documents/swmm/swmmpulse/HS_calib_120_simp.out'
         router = PRouter(graph=graph, qlookup=qlut)
         routetable = router.route()
-        routetable.to_file('/mnt/c/Users/albert/Documents/SWMMpulse/routetable.pickle')
+        routetable.to_file('C:/Users/alber/Documents/swmm/swmmpulse/routetable.pickle')
+        #routetable.to_file('/mnt/c/Users/albert/Documents/SWMMpulse/routetable.pickle')
     #print('Finished Test PRouter')
     print('Test Postprocessing')
     evalnode = 'MH327-088-1'
-    routetable = _Route_table.from_file('/mnt/c/Users/albert/Documents/SWMMpulse/routetable.pickle')
+    routetable = _Route_table.from_file('C:/Users/alber/Documents/swmm/swmmpulse/routetable.pickle')
+    #routetable = _Route_table.from_file('/mnt/c/Users/albert/Documents/SWMMpulse/routetable.pickle')
     pproc = Postprocessing.from_rtable(routetable, evalnode, qlut, graph)
-    pproc.process_constituent(Loading.FECAL)
+    pproc.process_constituent('C:/Users/alber/Documents/swmm/swmmpulse/entries.pickle', Loading.FECAL)
     print('Test Postprocessing finished')
