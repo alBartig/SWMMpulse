@@ -103,7 +103,7 @@ class PObject:
             timesteps (list)
         """
         first,shift_front = lookup.find_smaller_dt(self.ta)
-        last,shift_back = lookup.find_larger_dt(self.te)
+        last,shift_back = lookup.find_smaller_dt(self.te)
         diff = (last + shift_back) - (first + shift_front)
         size = int(diff/Discretization.TIMESTEPLENGTH + 1)
         return [first+step*Discretization.TIMESTEPLENGTH for step in range(size)]
@@ -134,9 +134,14 @@ class PObject:
         Returns:
             float
         """
-        if type(dt) == datetime.timedelta:
-            dt = dt.seconds
-        return 0.5 * (h1+h2) * dt
+        if type(dt) is not float:
+            dt = dt.total_seconds()
+        trapezoid = 0.5 * (h1+h2) * dt
+        if type(trapezoid) is not float:
+            print('Implausible load calculated')
+            print(f'Load: {trapezoid}')
+            raise BaseException
+        return trapezoid
 
     def _integrate_timestep_loads(self, heights, timesteps):
         """
@@ -152,13 +157,16 @@ class PObject:
             try:
                 if i == 0:
                     #first load
-                    loads.append(self._calculate_trapezoid(0, heights[1], timesteps[0] - self.ta))
+                    loads.append(self._calculate_trapezoid(0, heights[i+1], timesteps[i+1] - self.ta))
                 elif i == len(timesteps)-1:
                     #last load
-                    loads.append(self._calculate_trapezoid(0, heights[i], self.te - timesteps[i]))
+                    loads.append(self._calculate_trapezoid(heights[i], 0, self.te - timesteps[i]))
                 else:
                     loads.append(self._calculate_trapezoid(heights[i], heights[i + 1]))
             except:
+                print(f'Error calculating trapezoids: at index {i}')
+                print(f'Heights ({len(heights)}): {heights}')
+                print(f'Timesteps ({len(timesteps)}): {timesteps}')
                 raise Exception
         return loads
 
@@ -174,6 +182,9 @@ class PObject:
         timesteps = self.prepare_timesteps(mapseries)
         heights = self._prepare_loadheights(timesteps, constituent)
         loads = self._integrate_timestep_loads(heights, timesteps)
+        if len(heights) == 0:
+            print('Len of entry = 0')
+            raise BaseException
         return {'values':loads,'timestamps':timesteps,'origin':self.origin,'traveltime':self.age,'class':self.classification}
 
     def set_lookup(self, qlookup):

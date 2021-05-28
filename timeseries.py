@@ -2,6 +2,7 @@ from Exceptions import *
 import datetime
 import numpy as np
 import pandas as pd
+from tqdm import tqdm
 
 class TDict:
     def __init__(self, timestamps):
@@ -105,11 +106,12 @@ class TDict:
 
 
     def find_smaller_dt(self, time):
-        smaller = [ts for ts in self.timestamps if ts <= time]
-        if smaller == []:
-            return self.timestamps[-1],datetime.timedelta(days=-1)
-        else:
-            return smaller[-1],datetime.timedelta(days=0)
+        querydate = time.date()
+        querytime = time.time()
+        compare_dt = datetime.datetime.combine(self.date, querytime)
+        delay = datetime.timedelta(days=(querydate - self.date).days)
+        smaller = [ts for ts in self.timestamps if ts <= compare_dt]
+        return smaller[-1],delay
 
     def find_closest_dt(self, time):
         smaller,shift_front = self.find_smaller_dt(time)
@@ -144,9 +146,11 @@ class TDict:
                 time = self.find_larger(time)
         return datetime.datetime.combine(self.date, time)
 
-    def get_index(self, datetime):
+    def get_index(self, querydate):
+        querytime = querydate.time()
+        compare_dt = datetime.datetime.combine(self.date, querytime)
         try:
-            return self.timestamps.get_loc(datetime)
+            return self.timestamps.get_loc(compare_dt)
         except:
             raise BaseException
 
@@ -170,7 +174,7 @@ class TSeries(TDict):
             except:
                 print(f'Could not find {eid} in entry')
         self.entries = []
-        [self.append(entry, expand) for entry in entries]
+        [self.append(entry, expand) for entry in tqdm(entries)]
         [self.__setattr__(key, value) for key, value in kwargs.items()]
 
     def _expand(self, values, timestamps):
@@ -186,7 +190,7 @@ class TSeries(TDict):
         try:
             expanded = np.zeros(self.count)
             for time,value in zip(timestamps,values):
-                index = self.timestamps.get_loc(time)
+                index = self.get_index(time)
                 expanded[index] = value
         except:
             raise Exception
