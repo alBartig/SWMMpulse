@@ -12,6 +12,12 @@ class PObject:
     def __repr__(self):
         return f'PObject[{self.origin}, {self.classification}, {self.t0}]\n'
 
+    def __contains__(self, constituent):
+        for c in self.contents:
+            if c.name == constituent:
+                return True
+        return False
+
     def as_seconds(self, time):
         return time.hour*3600 + time.minute*60 + time.second
 

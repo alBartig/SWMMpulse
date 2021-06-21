@@ -3,6 +3,7 @@ import numpy as np
 from pobject import PObject
 import random
 from pconstants import Loading
+from helpers import get_weighted_population
 
 class Units:
     GRAM = 'g'
@@ -74,7 +75,8 @@ class Group:
         packetlist = []
 
         #prepare packets
-        npoops = int(round(population*self.weight*self.dailypoops))
+        weighted_population = get_weighted_population(population, self.weight)
+        npoops = int(round(weighted_population*self.dailypoops))
         occs = random.choices(index, weights=pattern, k=npoops)
         for occ in occs:
             h,r = divmod(occ,360)
@@ -105,7 +107,18 @@ class Environment:
 
 if __name__ == '__main__':
     env = Environment()
-    population = 100
-    plist = []
-    [plist.extend(group.plist('sample_node',population)) for group in env.groups]
+    population = 1759
+    fractions = [0.00030,0.00010,0.00005,0.00003]
+    test_arr = []
+    for fraction in fractions:
+        env.groups[0].weight = (1 - fraction)
+        env.groups[1].weight = fraction
+        temp = [[],[]]
+        for i in range(1000):
+            plist = []
+            [plist.extend(group.plist('sample_node',population)) for group in env.groups]
+            n = len([p for p in plist if p.classification == 'Infected'])
+            temp[0].append(n)
+            temp[1].append(len(plist))
+        print(f"{fraction}: Infected: min: {min(temp[0])}, max: {max(temp[0])}, Overall: {np.mean(temp[1])}")
     print(plist)

@@ -15,23 +15,6 @@ class PRouter:
         self.graph = graph
         self.env = Environment()
 
-    def set_community_info(self, groups:iter, weights:iter, **kwargs):
-        '''
-        Sets standard information on the modeled communities
-        :param groups: classification of mutually exclusive groups, eg: ('healthy','infected')
-        :param weights: weights by which a given population is divided into the groups, eg: (0,9,0.1)
-        :param kwargs: keyword arguments that are optional:
-            distribution:iter, tuple of applicable pattern distribution, if none are given, 'Bristol' is applied
-            ppp:iter, poops per person per day, number of defecation events per person per day, default is 1
-        :return: stores community information as a dictionary within pattern_router object
-        '''
-        com_info = {}
-        weights_adjusted = [weight/sum(weights) for weight in weights]
-        for i in range(len(groups)):
-            com_info[groups[i]] = {'weight':weights_adjusted[i],'distribution':kwargs.get('distribution')[i],\
-                                   'ppp':kwargs.get('poops_per_person')[i]}
-        self.community_info = com_info
-
     def route_packet(self, packet, path):
         ct = packet.t0
         stops = [(packet.origin,ct)]
@@ -60,13 +43,6 @@ class PRouter:
 
     def route_plist(self,plist, path):
         return [self.route_packet(p, path) for p in plist]
-
-    def create_community(self,node):
-        com = create_loadings.community(node)
-        pop = self.graph.get_nodevalue(node,'population')
-        for group in self.community_info:
-            com['population'] = pop * group['weight']
-            com.group_from_dict(group)
 
     def node_plist(self, nname, npop):
         """
@@ -223,7 +199,7 @@ class Postprocessing(TDict):
     def _create_tseries(self, constituent, entry_loc, load=False):
         if load is False:
             print('processing packets\n')
-            entries = [p.get_loads(constituent, self.link, self.qlut, self) for p in tqdm(self.packets)]
+            entries = [p.get_loads(constituent, self.link, self.qlut, self) for p in tqdm(self.packets) if p.__contains__(constituent)]
             with open(entry_loc, 'wb') as fobj:
                 pickle.dump(entries, fobj)
                 print('entries saved')

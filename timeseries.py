@@ -253,9 +253,9 @@ class TSeries(TDict):
             start = self.get_index(self.tlookup.find_smaller(start))
 
         if end == None:
-            end = self.get_index(self.end)
+            end = min(self.get_index(self.end)+1,len(self.timestamps))
         else:
-            end = self.get_index(self.find_larger(end))
+            end = min(self.get_index(self.find_larger(end))+1,len(self.timestamps))
 
         #aggregate entries
         timeseries = sum([entry['values'][start:end] for entry in self.entries])
