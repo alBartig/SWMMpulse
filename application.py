@@ -6,34 +6,35 @@ from environment import Environment
 import os
 from pconstants import Loading
 import matplotlib.pyplot as plt
+import datetime as dt
 
 def prepare_environment():
-    #lpath = '/mnt/c/Users/albert/Documents/SWMMpulse/HS_calib_120_simp.out'
-    lpath = 'C:/Users/alber/Documents/swmm/swmmpulse/HS_calib_120_simp.out'
+    lpath = '/mnt/c/Users/albert/Documents/SWMMpulse/HS_calib_120_simp.out'
+    #lpath = 'C:/Users/alber/Documents/swmm/swmmpulse/HS_calib_120_simp.out'
     qlut = QSeries(lpath)
-    #gpath = '/mnt/c/Users/albert/documents/SWMMpulse/HS_calib_120_simp/'
-    gpath = 'C:/Users/alber/documents/swmm/swmmpulse/HS_calib_120_simp/'
+    gpath = '/mnt/c/Users/albert/documents/SWMMpulse/HS_calib_120_simp/'
+    #gpath = 'C:/Users/alber/documents/swmm/swmmpulse/HS_calib_120_simp/'
     graph = ntwk.from_directory(gpath)
     return graph,qlut
 
-def generate_rts(graph, qlut):
-    fractions = [0.00030,0.00010,0.00005,0.00003]
+def generate_rts(graph, qlut, fractions, n=25):
     for fraction in fractions:
         env = Environment()
         env.groups[0].weight = (1 - fraction)
         env.groups[1].weight = fraction
 
-        for i in range(25):
+        for i in range(n):
             fname = f"rt_f{f'{fraction:.5f}'[-5:]}_{str(i).zfill(2)}.pickle"
             router = PRouter(graph=graph, qlookup=qlut)
             router.env = env
             routetable = router.route()
-            routetable.to_file(f'C:/Users/alber/documents/swmm/swmmpulse/route_tables/{fname}')
-            #routetable.to_file(f'/mnt/c/Users/albert/Documents/SWMMpulse/{fname}')
+            #routetable.to_file(f'C:/Users/alber/documents/swmm/swmmpulse/route_tables/{fname}')
+            routetable.to_file(f'/mnt/c/Users/albert/Documents/SWMMpulse/route_tables/{fname}')
             #pproc = Postprocessing.from_rtable(routetable, evalnode, qlut, graph)
 
 def evaluate_rts(graph, qlut, evalnode):
-    path = 'C:/Users/alber/documents/swmm/swmmpulse/'
+    #path = 'C:/Users/alber/documents/swmm/swmmpulse/'
+    path = '/mnt/c/Users/albert/Documents/SWMMpulse/'
     files = [p for p in os.listdir(os.path.join(path, "route_tables")) if p[:2] == 'rt']
     for file in files:
         routetable = _Route_table.from_file(os.path.join(path,"route_tables",file))
@@ -70,10 +71,17 @@ def test_cov(graph, qlut, evalnode):
     pproc.process_constituent(Loading.COV, entry_loc=os.path.join(path,'entries/rt_f00003_00_Cov_RNA.pickle'), load=False)
     print('test_cov finished')
 
+def test_mass_continuity():
+    p = PObject('Testloc','Infected',dt.datetime.now(),Environment().constituents)
+    print('Finished function')
 
 if __name__ == "__main__":
     evalnode = 'MH327-088-1'
     graph, qlut = prepare_environment()
-    test_cov(graph, qlut, evalnode)
+    fractions = [0.00030,0.00010,0.00005,0.00003]
+    generate_rts(graph, qlut, fractions[:1], 1)
+    evaluate_rts(graph, qlut, evalnode)
+    #test_cov(graph, qlut, evalnode)
+    #test_mass_continuity()
 
-    print('finished')
+    print('Finished module')

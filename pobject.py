@@ -108,8 +108,8 @@ class PObject:
         Returns:
             timesteps (list)
         """
-        first,shift_front = lookup.find_smaller_dt(self.ta)
-        last,shift_back = lookup.find_smaller_dt(self.te)
+        first,shift_front = lookup.get_lesser(self.ta)
+        last,shift_back = lookup.get_lesser(self.te)
         diff = (last + shift_back) - (first + shift_front)
         size = int(diff/Discretization.TIMESTEPLENGTH + 1)
         return [first+step*Discretization.TIMESTEPLENGTH for step in range(size)]

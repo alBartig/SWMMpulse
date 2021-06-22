@@ -6,10 +6,14 @@ from tqdm import tqdm
 
 class TDict:
     def __init__(self, timestamps):
-        #time_values = pd.to_datetime(time_values)
-        self.timestamps = pd.to_datetime(timestamps)
+        self.timeframe = pd.DataFrame.from_records([[ts.hour,ts.minute,ts.second,ts] for ts in pd.to_datetime(timestamps)],
+                                                   columns=['hours','minutes','seconds','timestamps'])
         self.date = self.timestamps[0].date()
-        self.lookup = self.register_timeseries(self.timestamps)
+        self.timedict = self.register_timeseries(self.timeframe.timestamps)
+
+    @property
+    def timestamps(self):
+        return self.timeframe.timestamps
 
     @classmethod
     def from_bounds(cls, start, end, step):
@@ -39,123 +43,149 @@ class TDict:
     def count(self):
         return len(self.timestamps)
 
+    def _index(self, time):
+        return self.timedict.get(time.hour).get(time.minute).get(time.second)
+
+    def _time(self, index):
+        if index > (self.count - 1):
+            index -= self.count
+        elif index < 0:
+            index += self.count
+        return self.timestamps[index]
+
+    def _closer(self, ref, t1, t2):
+        times = [t1,t2]
+        diffs = [abs(ref - t) for t in times]
+        index = diffs.index(min(diffs))
+        return times[index]
+
     def register_timeseries(self,series):
         timedict = {}
-        for step in series:
-            h = step.hour
-            m = step.minute
-            s = step.second
+        for i,step in enumerate(series):
+            h,m,s = step.hour, step.minute, step.second
             if timedict.__contains__(h):
                 if timedict[h].__contains__(m):
-                    timedict[h][m].append(s)
+                    timedict[h][m][s] = i
                 else:
-                    timedict[h][m] = [s]
+                    timedict[h][m] = {s:i}
             else:
-                timedict[h] = {m:[s]}
+                timedict[h] = {m: {s:i}}
         return timedict
 
-    def find_closest(self, time):
-        h = time.hour
-        m = time.minute
-        s = time.second
-        minutes_in_hour = self.lookup.get(h)
-        if minutes_in_hour != None:
-            seconds_in_minute = minutes_in_hour.get(m)
-            if seconds_in_minute != None:
-                s2 = min(seconds_in_minute, key = lambda x: abs(x-m))
-                time =  datetime.time(hour=h,minute=m,second=s2)
-            else:
-                minutes = minutes_in_hour.keys()
-                m2 = min(minutes, key = lambda x: abs(x-m))
-                seconds_in_minute = minutes_in_hour.get(m2)
-                if m2 > m:
-                    time = datetime.time(hour=h,minute=m2,second=max(seconds_in_minute))
-                else:
-                    time = datetime.time(hour=h,minute=m2,second=min(seconds_in_minute))
-        return datetime.datetime.combine(self.date, time)
+    def _strp_time(self, time):
+        return (time.hour, time.minute, time.second)
 
-    def find_smaller(self, time):
-        h = time.hour
-        m = time.minute
-        s = time.second
-        minutes_in_hour = self.lookup.get(h)
-        if minutes_in_hour != None:
-            seconds_in_minute = minutes_in_hour.get(m)
-            if seconds_in_minute != None:
-                seconds = [second for second in seconds_in_minute if second < s]
-                if len(seconds) > 1:
-                    s2 = seconds[-1]
-                    time =  datetime.time(hour=h,minute=m,second=s2)
-                else:
-                    time = time - datetime.timedelta(seconds=s+1)
-                    time = self.find_smaller(time)
-            else:
-                time = time - datetime.timedelta(seconds=s+1)
-                time = self.find_smaller(time)
-        return datetime.datetime.combine(self.date, time)
+    def check_time(self, time):
+        """
+        Checks if time is contained in timedict and returns the missing key if not
+        Args:
+            time (datetime.datetime): querytime
 
-    def find_larger_dt(self, time):
-        larger = [ts for ts in self.timestamps if ts >= time]
-        if larger == []:
-            return self.timestamps[0],datetime.timedelta(days=1)
-        else:
-            try:
-                return larger[0],datetime.timedelta(days=0)
-            except:
-                print(f'larger: {larger}, time: {time}')
-
-
-    def find_smaller_dt(self, time):
-        querydate = time.date()
-        querytime = time.time()
-        compare_dt = datetime.datetime.combine(self.date, querytime)
-        delay = datetime.timedelta(days=(querydate - self.date).days)
-        smaller = [ts for ts in self.timestamps if ts <= compare_dt]
-        return smaller[-1],delay
-
-    def find_closest_dt(self, time):
-        smaller,shift_front = self.find_smaller_dt(time)
-        ismaller = self.get_index(smaller)
-        if ismaller < len(self.timestamps)-1:
-            ilarger = ismaller + 1
-            larger = self.timestamps[ilarger]
-            if larger-time < time-smaller:
-                return larger
-            else:
-                return smaller
-        else:
-            return smaller
-
-    def find_larger(self, time):
-        h = time.hour
-        m = time.minute
-        s = time.second
-        minutes_in_hour = self.lookup.get(h)
-        if minutes_in_hour != None:
-            seconds_in_minute = minutes_in_hour.get(m)
-            if seconds_in_minute != None:
-                seconds = [second for second in seconds_in_minute if second<s]
-                if len(seconds) > 1:
-                    s2 = seconds[0]
-                    time = datetime.time(hour=h,minute=m,second=s2)
-                else:
-                    time = time + datetime.timedelta(seconds=60-s)
-                    time = self.find_larger(time)
-            else:
-                time = time + datetime.timedelta(seconds=60-s)
-                time = self.find_larger(time)
-        return datetime.datetime.combine(self.date, time)
-
-    def get_index(self, querydate):
-        querytime = querydate.time()
-        compare_dt = datetime.datetime.combine(self.date, querytime)
+        Returns:
+            time (datetime.datetime): if exact time is contained in timedict
+            key (string): string of ['hour','minute','second'] where the data failed to be retrieved
+        """
         try:
-            return self.timestamps.get_loc(compare_dt)
+            hours = self.timedict[time.hour]
         except:
-            raise BaseException
+            return 'hour'
+        try:
+            minutes = hours[time.minute]
+        except:
+            return 'minute'
+        try:
+            seconds = minutes[time.second]
+        except:
+            return 'second'
+        return True
 
-    def get_datetime(self, index):
-        return self.timestamps[index]
+    def _close_sample(self, time, key):
+        h,m,s = self._strp_time(time)
+        if key == 'second':
+            return self.timeframe.loc[(self.timeframe.hours == h) & (self.timeframe.minutes == m)].timestamps
+        elif key == 'minute':
+            return self.timeframe.loc[(self.timeframe.hours == h)].timestamps
+        elif key == 'hour':
+            return self.timeframe.hours.timestamps
+
+    def get_closest(self, time):
+        time = datetime.datetime.combine(self.date,time.time())
+        key = self.check_time(time)
+        if key is True:
+            return time
+        else:
+            ls = list(self._close_sample(time,key))
+            greater = self._greater_ls(time, ls)
+            if greater:
+                i = self._index(greater)
+            else:
+                i = self._index(ls[-1])+1
+                greater = self._time(i)
+            lesser = self._time(i-1)
+            return self._closer(time,greater,lesser)
+
+    def get_greater(self, time):
+        querydate = time.date()
+        delay = datetime.timedelta(days=(querydate - self.date).days)
+        time = datetime.datetime.combine(self.date,time.time())
+        key = self.check_time(time)
+        if key is True:
+            return time
+        else:
+            ls = list(self._close_sample(time,key))
+            greater = self._greater_ls(time,ls)
+            if greater:
+                return greater,delay
+            else:
+                i = self._index(ls[-1])+1
+                return self._time(i),delay
+
+    def get_lesser(self, time):
+        querydate = time.date()
+        delay = datetime.timedelta(days=(querydate - self.date).days)
+        time = datetime.datetime.combine(self.date,time.time())
+        key = self.check_time(time)
+        if key is True:
+            return time
+        else:
+            ls = list(self._close_sample(time,key))
+            lesser = self._lesser_ls(time,ls)
+            if lesser:
+                return lesser,delay
+            else:
+                i = self._index(ls[0])-1
+                return self._time(i),delay
+
+    def _lesser_ls(self, val, ls):
+        i = len(ls) - 1
+        try:
+            while ls[i] > val:
+                i -= 1
+            return ls[i]
+        except:
+            return False
+
+    def _greater_ls(self, val, ls):
+        i = 0
+        try:
+            while ls[i] < val:
+                i += 1
+            return ls[i]
+        except:
+            return False
+
+    def _closest_ls(self, val, ls):
+        i = 0
+        imax = len(ls) - 1
+        try:
+            while ls[i] < val and i < imax:
+                i += 1
+            if abs(ls[i] - val) < abs(ls[i - 1] - val):
+                return ls[i]
+            else:
+                return ls[i - 1]
+        except:
+            return False
 
 class TSeries(TDict):
     """
@@ -190,7 +220,7 @@ class TSeries(TDict):
         try:
             expanded = np.zeros(self.count)
             for time,value in zip(timestamps,values):
-                index = self.get_index(time)
+                index = self._index(time)
                 expanded[index] = value
         except:
             raise Exception
@@ -229,11 +259,11 @@ class TSeries(TDict):
         """
         #generate values
         if type(time) == tuple or type(time) == list:
-            start = self.get_index(self.find_smaller(time[0]))
-            end = self.get_index(self.find_larger(time[1]))
+            start = self._index(self.find_smaller(time[0]))
+            end = self._index(self.find_larger(time[1]))
             values = [(entry[key],np.mean(entry['values'][start:end])) for entry in self.entries]
         elif type(time) == datetime.datetime:
-            index = self.get_index(self.find_closest(time))
+            index = self._index(self.get_closest(time))
             values = [(entry[key],entry['values'][index]) for entry in self.entries]
 
     def timeseries(self, start=None, end=None):
@@ -248,14 +278,14 @@ class TSeries(TDict):
         """
         #set parameters
         if start == None:
-            start = self.get_index(self.start)
+            start = self._index(self.start)
         else:
-            start = self.get_index(self.tlookup.find_smaller(start))
+            start = self._index(self.tlookup.find_smaller(start))
 
         if end == None:
-            end = min(self.get_index(self.end)+1,len(self.timestamps))
+            end = min(self._index(self.end) + 1, len(self.timestamps))
         else:
-            end = min(self.get_index(self.find_larger(end))+1,len(self.timestamps))
+            end = min(self._index(self.find_larger(end)) + 1, len(self.timestamps))
 
         #aggregate entries
         timeseries = sum([entry['values'][start:end] for entry in self.entries])
@@ -303,8 +333,8 @@ class QSeries(TSeries):
         """
         if time.date() != self.date:
             time = datetime.datetime.combine(self.date, time.time())
-        querytime = self.find_closest_dt(time)
-        index = self.get_index(querytime)
+        querytime = self.get_closest(time)
+        index = self._index(querytime)
         iorg = index
         vvalues = self.entries[self.eids.index(link)]['values']
         v = vvalues[index]
@@ -318,9 +348,9 @@ class QSeries(TSeries):
             if index == iorg: #Break if full loop was done
                 return None,None
         if index > iorg: #Return if index has not looped around index > time
-            delay = self.get_datetime(index)-time
+            delay = self._time(index) - time
         elif index < iorg: #Return if index has looped - index < time
-            delay = datetime.timedelta(days=1) - (time-self.get_datetime(index))
+            delay = datetime.timedelta(days=1) - (time - self._time(index))
         else:
             delay = datetime.timedelta(seconds=0)
         if delay < datetime.timedelta(seconds=0):
