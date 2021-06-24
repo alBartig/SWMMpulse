@@ -6,6 +6,7 @@ class Distributions:
 class Discretization:
     TIMESTEPLENGTH = timedelta(seconds=10) #timesteplength in s
     SERIESLENGTH = 86400 #length of the timeseries to be calculated in s
+    REFINE = 10
 
 class Loading:
     CONSTITUENTS = 'constituents'
@@ -16,3 +17,4 @@ class Loading:
     FECAL = 'Fecal_Matter'
     COV = 'Cov_RNA'
     PEP = 'Pepper_virus'
+    MAX_CONTINUITY_ERROR = 0.02

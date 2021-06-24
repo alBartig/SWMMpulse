@@ -8,11 +8,11 @@ from pconstants import Loading
 import matplotlib.pyplot as plt
 
 def prepare_environment():
-    #lpath = '/mnt/c/Users/albert/Documents/SWMMpulse/HS_calib_120_simp.out'
-    lpath = 'C:/Users/alber/Documents/swmm/swmmpulse/HS_calib_120_simp.out'
+    lpath = '/mnt/c/Users/albert/Documents/SWMMpulse/HS_calib_120_simp.out'
+    #lpath = 'C:/Users/alber/Documents/swmm/swmmpulse/HS_calib_120_simp.out'
     qlut = QSeries(lpath)
-    #gpath = '/mnt/c/Users/albert/documents/SWMMpulse/HS_calib_120_simp/'
-    gpath = 'C:/Users/alber/documents/swmm/swmmpulse/HS_calib_120_simp/'
+    gpath = '/mnt/c/Users/albert/documents/SWMMpulse/HS_calib_120_simp/'
+    #gpath = 'C:/Users/alber/documents/swmm/swmmpulse/HS_calib_120_simp/'
     graph = ntwk.from_directory(gpath)
     return graph,qlut
 
