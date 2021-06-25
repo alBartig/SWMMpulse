@@ -75,7 +75,11 @@ class PObject:
         Returns:
             peak (float): peak factor
         """
-        return 1/dist
+        try:
+            return 1/dist
+        except:
+            print(f"Trying to divide 1 by {dist}, Type: {type(dist)}")
+            raise ValueError
 
     def interpolate(self, xg, x2, y2, x1=0, y1=0):
         """
@@ -106,7 +110,7 @@ class PObject:
             spread_time =datetime.timedelta(seconds=max(calc_spread,6))
         except Exception:
             print('Unknown Error: Could not convert spread distance [m] to time [s]')
-            exit()
+            raise BaseException
         self.ta = self.tm - spread_time
         self.te = self.tm + spread_time
 
@@ -229,6 +233,12 @@ class PObject:
         dx = round(v,1) * Discretization.TIMESTEPLENGTH.total_seconds() / Discretization.REFINE
         #creating linear spatial array with distance to load peak
         d = np.arange(-2*dist,2*dist,dx)
+        #check if pulse load is already spread-out or not / catching div by 0
+        if len(d) == 0:
+            mt = [mred]
+            t= [tlookup.find_closest(self.tm)]
+            return {'values': mt, 'timestamps': t, 'origin': self.origin, 'traveltime': self.age,
+                    'class': self.classification}
         #calculate peak loading [unit/m]
         peak_m = self._peak_triangular(dist) * mred
         #interpolate loading for each section

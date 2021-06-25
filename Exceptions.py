@@ -16,3 +16,6 @@ class PlausibilityError(BaseException):
 class MassbalanceError(BaseException):
     def __init__(self):
         print('Expected total load does not match calculated total load')
+
+class TimevalueError(BaseException):
+    pass

@@ -157,8 +157,9 @@ class _Route_table:
         from copy import copy
         node,link = location[0],location[1]
         index = self._find_columns((node,))[0]
-        nlist = [copy(row[0]).set_arrival(row[index], disp) for row in self.content\
+        nlist = [copy(row[0]).set_arrival(row[index]) for row in self.content\
                  if row[index] != 0]
+        [p.set_dispersion(disp) for p in nlist]
         return {'node':node, 'link':link, 'packets':nlist}
 
     def to_file(self, fpath):

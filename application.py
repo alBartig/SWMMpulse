@@ -33,9 +33,10 @@ def generate_rts(graph, qlut):
             #pproc = Postprocessing.from_rtable(routetable, evalnode, qlut, graph)
 
 def evaluate_rts(graph, qlut, evalnode):
-    path = 'C:/Users/alber/documents/swmm/swmmpulse/'
+    #path = 'C:/Users/alber/documents/swmm/swmmpulse/'
+    path = '/mnt/c/Users/albert/documents/SWMMpulse/'
     files = [p for p in os.listdir(os.path.join(path, "route_tables")) if p[:2] == 'rt']
-    for file in files:
+    for file in files[:1]:
         routetable = _Route_table.from_file(os.path.join(path,"route_tables",file))
         pproc = Postprocessing.from_rtable(routetable, evalnode, qlut, graph)
         eval_constituents = [Loading.FECAL, Loading.COV]
@@ -74,6 +75,7 @@ def test_cov(graph, qlut, evalnode):
 if __name__ == "__main__":
     evalnode = 'MH327-088-1'
     graph, qlut = prepare_environment()
-    test_cov(graph, qlut, evalnode)
+    evaluate_rts(graph,qlut,evalnode)
+    #test_cov(graph, qlut, evalnode)
 
     print('finished')

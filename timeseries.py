@@ -7,9 +7,25 @@ from tqdm import tqdm
 class TDict:
     def __init__(self, timestamps):
         #time_values = pd.to_datetime(time_values)
-        self.timestamps = pd.to_datetime(timestamps)
-        self.date = self.timestamps[0].date()
+        timestamps = pd.to_datetime(timestamps)
+        self.date = timestamps[0].date()
+        self.timestamps, self.sortby = self._normalize(timestamps)
         self.lookup = self.register_timeseries(self.timestamps)
+
+    def _normalize(self, timestamps):
+        temp = []
+        for t in timestamps:
+            if t.date() == self.date:
+                temp.append(t)
+            else:
+                t = datetime.datetime.combine(self.date,t.time())
+                if not temp.__contains__(t):
+                    temp.append(t)
+                else:
+                    print("Series spans more than 24 h! Duplicate time-values found.\nPlease remove duplicate time-values regardless of date")
+                    raise TimevalueError
+        sortby = np.argsort(temp)
+        return ([temp[i] for i in sortby],sortby)
 
     @classmethod
     def from_bounds(cls, start, end, step):
@@ -54,25 +70,52 @@ class TDict:
                 timedict[h] = {m:[s]}
         return timedict
 
+    def _get_secs(self,time):
+        return self.lookup.get(time.hour,{}).get(time.minute,[])
+
+    def _get_secs_padded(self, time):
+        """
+        same as self._get_secs, but also queries seconds from 60s ahead to cover min + 60s
+        Args:
+            time:
+
+        Returns:
+            list: seconds in minute and if available following minute first value
+        """
+        secs1 = self._get_secs(time)
+        time2 = time+datetime.timedelta(seconds=60)
+        secs2 = [s+60 for s in self._get_secs(time2)[:1]]
+        return  secs1 + secs2
+
+    def _get_time_from_sec(self, time, secs):
+        return datetime.datetime.combine(self.date, datetime.time(time.hour,time.minute)) + datetime.timedelta(seconds=secs)
+
+    def _get_time_from_min(self, time, min, first=True):
+        time = datetime.time(time.hour,min)
+        secs = abs(first-1)*max(self._get_secs(time)) + first*min(self._get_secs(time))
+        time.replace(second=secs)
+        return datetime.datetime.combine(self.date,time)
+
     def find_closest(self, time):
         h = time.hour
         m = time.minute
         s = time.second
         minutes_in_hour = self.lookup.get(h)
         if minutes_in_hour != None:
-            seconds_in_minute = minutes_in_hour.get(m)
+            seconds_in_minute = self._get_secs_padded(time)
             if seconds_in_minute != None:
-                s2 = min(seconds_in_minute, key = lambda x: abs(x-m))
-                time =  datetime.time(hour=h,minute=m,second=s2)
+                s2 = min(seconds_in_minute, key = lambda x: abs(x-s))
+                time = self._get_time_from_sec(time, s2)
             else:
                 minutes = minutes_in_hour.keys()
                 m2 = min(minutes, key = lambda x: abs(x-m))
-                seconds_in_minute = minutes_in_hour.get(m2)
                 if m2 > m:
-                    time = datetime.time(hour=h,minute=m2,second=max(seconds_in_minute))
+                    time = self._get_time_from_min(time, m2, first=False)
+                    #time = datetime.time(hour=h,minute=m2,second=max(seconds_in_minute))
                 else:
-                    time = datetime.time(hour=h,minute=m2,second=min(seconds_in_minute))
-        return datetime.datetime.combine(self.date, time)
+                    time = self._get_time_from_min(time, m2, first=True)
+                    #time = datetime.time(hour=h,minute=m2,second=min(seconds_in_minute))
+        return time
 
     def find_smaller(self, time):
         h = time.hour
@@ -150,7 +193,7 @@ class TDict:
         querytime = querydate.time()
         compare_dt = datetime.datetime.combine(self.date, querytime)
         try:
-            return self.timestamps.get_loc(compare_dt)
+            return self.timestamps.index(compare_dt)
         except:
             raise BaseException
 
@@ -174,7 +217,7 @@ class TSeries(TDict):
             except:
                 print(f'Could not find {eid} in entry')
         self.entries = []
-        [self.append(entry, expand) for entry in tqdm(entries)]
+        [self.append(entries[i], expand) for i in tqdm(self.sortby)]
         [self.__setattr__(key, value) for key, value in kwargs.items()]
 
     def _expand(self, values, timestamps):
@@ -339,9 +382,42 @@ class QSeries(TSeries):
         s = distance/velocity
         return s
 
-if __name__ == '__main__':
+def test_qseries():
     print('Test QSeries')
     #of_path = 'C:/Users/alber/Documents/swmm/swmmpulse/HS_calib_120_simp.out'
     of_path = '/mnt/c/Users/albert/Documents/SWMMpulse/HS_calib_120_simp.out'
     qlut = QSeries(of_path)
     print('Test QSeries finished')
+
+def main():
+    from application import prepare_environment
+    import datetime as dt
+    from pconstants import Loading, Discretization
+    import pandas as pd
+
+    evalnode = 'MH327-088-1'
+    graph, qlut = prepare_environment()
+    link = graph.get_outletlinks(evalnode)[0]
+
+    start, end = qlut.timestamps[0], qlut.timestamps[0] + datetime.timedelta(days=1)
+    timestamps = [start + i * Discretization.TIMESTEPLENGTH for i in
+                  range(int((end - start) / Discretization.TIMESTEPLENGTH))]
+    tlut = TDict(timestamps)
+
+    t0 = dt.datetime.now()
+    deltas = [i for i in range(86400)]
+    diffs = []
+    times = []
+    for delta in deltas:
+        time = t0 + dt.timedelta(seconds=delta)
+        closest = tlut.find_closest(time)
+        diffs.append(min((closest-time).seconds,abs((closest-time).seconds-86400)))
+        times.append(time)
+    df = pd.DataFrame.from_records(zip(deltas,diffs,times),columns=['Deltas','Differenzen','Timestamps'])
+    print(f"Mean: {np.mean(diffs)} s\n"
+          f"Min: {np.min(diffs)} s\n"
+          f"Max: {np.max(diffs)} s")
+    print("Finished Main")
+
+if __name__ == '__main__':
+    main()
