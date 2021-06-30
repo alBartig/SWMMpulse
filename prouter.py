@@ -215,6 +215,10 @@ class Postprocessing(TDict):
         self.__setattr__(constituent,ts)
         return ts
 
+    def as_conc(self, values):
+        pass
+
+
 if __name__ == '__main__':
     lpath = '/mnt/c/Users/albert/Documents/SWMMpulse/HS_calib_120_simp.out'
     gpath = '/mnt/c/Users/albert/documents/SWMMpulse/HS_calib_120_simp/'

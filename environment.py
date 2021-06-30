@@ -81,7 +81,7 @@ class Group:
         for occ in occs:
             h,r = divmod(occ,360)
             m,s = divmod(r,60)
-            nowh = timedelta(hours=h,minutes=m,seconds=s)
+            nowh = timedelta(hours=h,minutes=m,seconds=10*s)
             packetlist.append(PObject(origin, self.name, nowd+nowh, self.constituents))
         return packetlist
 
@@ -105,7 +105,7 @@ class Environment:
             [constituents.add(c) for c in group.constituents]
         return list(constituents)
 
-if __name__ == '__main__':
+def test_fractions():
     env = Environment()
     population = 1759
     fractions = [0.00030,0.00010,0.00005,0.00003]
@@ -122,3 +122,20 @@ if __name__ == '__main__':
             temp[1].append(len(plist))
         print(f"{fraction}: Infected: min: {min(temp[0])}, max: {max(temp[0])}, Overall: {np.mean(temp[1])}")
     print(plist)
+
+def random_correlation():
+    from collections import Counter
+    env = Environment()
+    population = 2000
+    plist = []
+    [plist.extend(group.plist('sample_node',population)) for group in env.groups]
+    originminutes = [p.t0.minute for p in plist]
+    c = Counter(originminutes)
+    print(f"Minuten: {list(c.keys())}")
+    print("Function finished")
+
+def main():
+    random_correlation()
+
+if __name__ == '__main__':
+    main()

@@ -28,22 +28,30 @@ def generate_rts(graph, qlut):
             router = PRouter(graph=graph, qlookup=qlut)
             router.env = env
             routetable = router.route()
-            routetable.to_file(f'C:/Users/alber/documents/swmm/swmmpulse/route_tables/{fname}')
-            #routetable.to_file(f'/mnt/c/Users/albert/Documents/SWMMpulse/{fname}')
+            #routetable.to_file(f'C:/Users/alber/documents/swmm/swmmpulse/route_tables/{fname}')
+            routetable.to_file(f'/mnt/c/Users/albert/Documents/SWMMpulse/route_tables/{fname}')
             #pproc = Postprocessing.from_rtable(routetable, evalnode, qlut, graph)
 
 def evaluate_rts(graph, qlut, evalnode):
     #path = 'C:/Users/alber/documents/swmm/swmmpulse/'
     path = '/mnt/c/Users/albert/documents/SWMMpulse/'
     files = [p for p in os.listdir(os.path.join(path, "route_tables")) if p[:2] == 'rt']
-    for file in files[:1]:
+    for file in files[1:]:
         routetable = _Route_table.from_file(os.path.join(path,"route_tables",file))
         pproc = Postprocessing.from_rtable(routetable, evalnode, qlut, graph)
         eval_constituents = [Loading.FECAL, Loading.COV]
         for const in eval_constituents:
             entry_loc = os.path.join(path, 'entries', f"{file.rstrip('.pickle')}_{const}.pickle")
-            pproc.process_constituent(const, entry_loc)
+            pproc.process_constituent(const, entry_loc, load=False)
+            pproc.Fecal_Matter.timeseries(wpath=os.path.join(path,'timeseries',f"{file.rstrip('.pickle')}_{const}.csv"))
+
+            print('postprocesser loaded')
     print('finish')
+
+def load_pproc(rtable):
+    #path = 'C:/Users/alber/documents/swmm/swmmpulse/'
+    path = '/mnt/c/Users/albert/documents/SWMMpulse/'
+    pfile = Postprocessing.from_rtable(route)
 
 def plot_data(graph, qlut, evalnode):
     path = 'C:/Users/alber/documents/swmm/swmmpulse'
@@ -63,6 +71,20 @@ def plot_data(graph, qlut, evalnode):
 
     print('shit')
 
+def testdrive(graph, qlut, evalnode):
+    fpath = f'/mnt/c/Users/albert/documents/SWMMpulse/'
+    #fpath = f'C:/Users/alber/documents/swmm/swmmpulse/'
+    router = PRouter(graph=graph, qlookup=qlut)
+    router.env = Environment()
+    routetable = router.route()
+    routetable.to_file(os.path.join(fpath,'route_tables','rtb_testdrive.pickle'))
+    pproc = Postprocessing.from_rtable(routetable, evalnode, qlut, graph)
+    eval_constituent = Loading.FECAL
+    entry_loc = os.path.join(fpath, 'entries', "entries_testdrive.pickle")
+    pproc.process_constituent(eval_constituent, entry_loc, load=False)
+    pproc.Fecal_Matter.timeseries(wpath=os.path.join(fpath, 'timeseries', 'timeseries_testdrive.pickle'))
+    print("Function finished")
+
 def test_cov(graph, qlut, evalnode):
     path = 'C:/Users/alber/documents/swmm/swmmpulse'
     file = 'route_tables/rt_f00003_00.pickle'
@@ -75,7 +97,10 @@ def test_cov(graph, qlut, evalnode):
 if __name__ == "__main__":
     evalnode = 'MH327-088-1'
     graph, qlut = prepare_environment()
+    #generate_rts(graph,qlut)
     evaluate_rts(graph,qlut,evalnode)
     #test_cov(graph, qlut, evalnode)
+
+    #testdrive(graph, qlut, evalnode)
 
     print('finished')

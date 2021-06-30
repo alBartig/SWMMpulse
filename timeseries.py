@@ -200,6 +200,37 @@ class TDict:
     def get_datetime(self, index):
         return self.timestamps[index]
 
+    def _to_csv(self, content, opath):
+        """
+
+        Args:
+            content (dict):
+            path (str):
+
+        Returns:
+
+        """
+        import csv
+        import os
+        import ntpath
+
+        def path_leaf(path):
+            head, tail = ntpath.split(path)
+            return tail or ntpath.basename(head)
+
+        def path_leaf_inverse(path):
+            return path.strip('/\\').strip(path_leaf(path))
+
+        if not os.path.exists(path_leaf_inverse(opath)):
+            os.makedirs(path_leaf_inverse(opath))
+
+        with open(opath, "w+", newline="") as csvfile:
+            writer = csv.writer(csvfile, delimiter=';')
+            writer.writerow(list(content.keys()))
+            for row in zip(*list(content.values())):
+                writer.writerow(row)
+        print(f'csv-file saved to "{opath}"')
+
 class TSeries(TDict):
     """
     Timeseries object that offers additional functionality.
@@ -217,7 +248,16 @@ class TSeries(TDict):
             except:
                 print(f'Could not find {eid} in entry')
         self.entries = []
-        [self.append(entries[i], expand) for i in tqdm(self.sortby)]
+        if expand == True:
+            [self.append(entry,expand) for entry in entries]
+        else:
+            for entry in entries:
+                try:
+                    vals = [entry['values'][i] for i in self.sortby]
+                except:
+                    pass
+                entry['values'] = vals
+                self.append(entry, expand)
         [self.__setattr__(key, value) for key, value in kwargs.items()]
 
     def _expand(self, values, timestamps):
@@ -232,9 +272,15 @@ class TSeries(TDict):
         """
         try:
             expanded = np.zeros(self.count)
-            for time,value in zip(timestamps,values):
-                index = self.get_index(time)
-                expanded[index] = value
+            i0 = self.get_index(timestamps[0])
+            ie = self.get_index(timestamps[-1])
+            if ie-i0 == len(timestamps)-1:
+                for i in range(len(timestamps)):
+                    expanded[i0+i] = values[i]
+            else:
+                for time,value in zip(timestamps,values):
+                    index = self.get_index(time)
+                    expanded[index] = value
         except:
             raise Exception
         return expanded
@@ -279,7 +325,7 @@ class TSeries(TDict):
             index = self.get_index(self.find_closest(time))
             values = [(entry[key],entry['values'][index]) for entry in self.entries]
 
-    def timeseries(self, start=None, end=None):
+    def timeseries(self, start=None, end=None, wpath=None):
         """
         returns all entries aggregated into one series along with the timesteps
         Args:
@@ -302,7 +348,20 @@ class TSeries(TDict):
 
         #aggregate entries
         timeseries = sum([entry['values'][start:end] for entry in self.entries])
+
+        if wpath is not None:
+            self._to_csv({'timestamps':self.timestamps,'values':timeseries},wpath)
+
         return (self.timestamps,timeseries)
+
+    def traveltime_distribution(self, start=None, end=None):
+        #creating bins:
+        nbins = 10
+        traveltimes = set([entry["Traveltime"] for entry in self.entries])
+        tmin, tmax = min(traveltimes), max(traveltimes)
+        binwidth = round((tmax-tmin)/nbins)
+        binspecs = [(tmin + i * binwidth, tmin + (i+1) * binwidth) for i in range(nbins)]
+
 
     def plot(self, eid=None, **kwargs):
         """
@@ -313,10 +372,11 @@ class TSeries(TDict):
         import matplotlib.pyplot as plt
         fig = plt.figure()
         ax1 = fig.add_subplot(111)
+        x,y = self.timeseries()
         if eid is None:
-            ax1.plot(self.timestamps, self.timeseries())
+            ax1.plot(x,y)
         else:
-            ax1.plot(self.timestamps, self.entry(eid)['values'])
+            ax1.plot(self.timestamps[0], self.entry(eid)['values'])
         plt.savefig(f'/mnt/c/Users/albert/Documents/SWMMpulse/tseries_plot_{eid}.png')
 
 
@@ -349,7 +409,10 @@ class QSeries(TSeries):
         querytime = self.find_closest_dt(time)
         index = self.get_index(querytime)
         iorg = index
-        vvalues = self.entries[self.eids.index(link)]['values']
+        try:
+            vvalues = self.entries[self.eids.index(link)]['values']
+        except:
+            pass
         v = vvalues[index]
         imax = self.count - 1
         while v == 0:

@@ -229,10 +229,12 @@ class PObject:
         #calculate dispersion spread
         dist = self._calculate_dispersion_spread(self.dispersion)
         #looking up flow velocity and calculate spatial resolution corresponding to timestep and flowvelocity
-        v = qlookup.lookup_v(link,self.tm)[0]
-        dx = round(v,1) * Discretization.TIMESTEPLENGTH.total_seconds() / Discretization.REFINE
-        #creating linear spatial array with distance to load peak
-        d = np.arange(-2*dist,2*dist,dx)
+        v = round(qlookup.lookup_v(link,self.tm)[0],1)
+        dx = v * Discretization.TIMESTEPLENGTH.total_seconds()
+        #creating linear spatial array with distance to load peak, making sure x=0.0 is contained in d
+        borders = (2*np.floor(dist/dx)-1)*dx
+        dx = dx / Discretization.REFINE
+        d = np.arange(-borders,borders,dx)
         #check if pulse load is already spread-out or not / catching div by 0
         if len(d) == 0:
             mt = [mred]
