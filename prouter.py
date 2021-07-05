@@ -8,6 +8,8 @@ from environment import Environment
 from tqdm import tqdm
 import pickle
 from Exceptions import RoutingError, PlausibilityError
+import pandas as pd
+import numpy as np
 
 class PRouter:
     def __init__(self,graph,qlookup):
@@ -216,39 +218,52 @@ class Postprocessing(TDict):
         return ts
 
     def as_conc(self, values):
-        pass
+        qseries = self.qlut._explode_eid(self.link)
+        c = [w/(q*Discretization.TIMESTEPLENGTH.seconds) for q,w in list(zip(qseries,values))]
+        return c
 
+    def sample_times(self, duration=120, frequency="H"):
+        n = np.floor(duration / 10)
+        starts = pd.date_range(self.timestamps[0], self.timestamps[-1], freq=frequency)
+        slots = []
+        for t in starts:
+            slots += pd.date_range(t, periods=n, freq="10S")
+        return pd.DatetimeIndex(slots)
 
-if __name__ == '__main__':
+def test_routing(qlut, graph, save=False):
+    print("Test Routing PRouter")
+    router = PRouter(graph=graph, qlookup=qlut)
+    routetable = router.route()
+    if save:
+        #routetable.to_file('C:/Users/alber/Documents/swmm/swmmpulse/route_tables/routetable.pickle')
+        routetable.to_file('/mnt/c/Users/albert/Documents/SWMMpulse/route_tables/routetable.pickle')
+    print('Finished Test Routing PRouter')
+
+def test_postprocessing(qlut, graph, load=True):
+    print('Test Postprocessing')
+    evalnode = 'MH327-088-1'
+    #routetable = _Route_table.from_file('C:/Users/alber/Documents/swmm/swmmpulse/route_tables/routetable.pickle')
+    routetable = _Route_table.from_file('/mnt/c/Users/albert/Documents/SWMMpulse/route_tables/routetable.pickle')
+    pproc = Postprocessing.from_rtable(routetable, evalnode, qlut, graph)
+
+    #pproc.process_constituent(Loading.FECAL, entry_loc='C:/Users/alber/Documents/swmm/swmmpulse/entries/entries.pickle', load=load)
+    pproc.process_constituent(Loading.FECAL, entry_loc='/mnt/c/Users/albert/Documents/SWMMpulse/entries/entries.pickle', load=load)
+    print("Test postprocessing finished")
+    return pproc
+
+def preparation():
     lpath = '/mnt/c/Users/albert/Documents/SWMMpulse/HS_calib_120_simp.out'
     gpath = '/mnt/c/Users/albert/documents/SWMMpulse/HS_calib_120_simp/'
     #gpath = 'C:/Users/alber/documents/swmm/swmmpulse/HS_calib_120_simp/'
     #lpath = 'C:/Users/alber/Documents/swmm/swmmpulse/HS_calib_120_simp.out'
     qlut = QSeries(lpath)
     graph = ntwk.from_directory(gpath)
-    skip = True
-    if skip is True:
-        print('Skipping Test PRouter')
-    else:
-        router = PRouter(graph=graph, qlookup=qlut)
-        routetable = router.route()
-        #routetable.to_file('C:/Users/alber/Documents/swmm/swmmpulse/routetable.pickle')
-        routetable.to_file('/mnt/c/Users/albert/Documents/SWMMpulse/routetable.pickle')
-    #print('Finished Test PRouter')
-    print('Test Postprocessing')
+    return qlut, graph
 
-    evalnode = 'MH327-088-1'
-    #routetable = _Route_table.from_file('C:/Users/alber/Documents/swmm/swmmpulse/routetable.pickle')
-    routetable = _Route_table.from_file('/mnt/c/Users/albert/Documents/SWMMpulse/routetable.pickle')
-    pproc = Postprocessing.from_rtable(routetable, evalnode, qlut, graph)
+def main():
+    qlut, graph = preparation()
+    test_routing(qlut,graph,True)
+    test_postprocessing(qlut, graph, load=True)
 
-    print('Create timeseries')
-    skip = True
-    if skip is False:
-        #pproc.process_constituent(Loading.FECAL, entry_loc='C:/Users/alber/Documents/swmm/swmmpulse/entries.pickle', load=False)
-        pproc.process_constituent(Loading.FECAL, entry_loc='/mnt/c/Users/albert/Documents/SWMMpulse/entries.pickle', load=False)
-    else:
-        #pproc.process_constituent(Loading.FECAL, entry_loc='C:/Users/alber/Documents/swmm/swmmpulse/entries.pickle', load=True)
-        pproc.process_constituent(Loading.FECAL, entry_loc='/mnt/c/Users/albert/Documents/SWMMpulse/entries.pickle', load=True)
-
-    print('Test Postprocessing finished')
+if __name__ == '__main__':
+    main()

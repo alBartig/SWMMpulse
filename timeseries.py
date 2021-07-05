@@ -285,6 +285,22 @@ class TSeries(TDict):
             raise Exception
         return expanded
 
+    def _explode_eid(self, eid):
+        #extract eid as series
+        series = self._extract_eid(eid)
+        #create high-res daterange
+        dr = pd.date_range(self.date, periods=8640, freq="10S")
+        #create empty DataFrame with high-res dr as index
+        df = pd.DataFrame(index=dr)
+        #join with old series
+        df = df.join(series)
+        #interpolate missing values
+        df.interpolate(inplace=True)
+        return df[series.name]
+
+    def _extract_eid(self, eid):
+        return pd.Series(self.entry(eid)['values'], index=self.timestamps, name=eid)
+
     def append(self, entrydict, expand=True):
         """
         appends a time-value - tuple from a Pobject-class object to the tdict.
