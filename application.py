@@ -6,6 +6,7 @@ from environment import Environment
 import os
 from pconstants import Loading
 import matplotlib.pyplot as plt
+from helpers import series_to_dfmi
 
 def prepare_environment():
     lpath = '/mnt/c/Users/albert/Documents/SWMMpulse/HS_calib_120_simp.out'
@@ -35,7 +36,7 @@ def generate_rts(graph, qlut):
 def evaluate_rts(graph, qlut, evalnode):
     #path = 'C:/Users/alber/documents/swmm/swmmpulse/'
     path = '/mnt/c/Users/albert/documents/SWMMpulse/'
-    files = [p for p in os.listdir(os.path.join(path, "route_tables")) if p[:2] == 'rt']
+    files = [p for p in os.listdir(os.path.join(path, "route_tables")) if p[:3] == 'rt_']
     for file in files[1:]:
         routetable = _Route_table.from_file(os.path.join(path,"route_tables",file))
         pproc = Postprocessing.from_rtable(routetable, evalnode, qlut, graph)
@@ -47,6 +48,27 @@ def evaluate_rts(graph, qlut, evalnode):
 
             print('postprocesser loaded')
     print('finish')
+
+def create_cseries(graph, qlut, evalnode):
+    #path = 'C:/Users/alber/documents/swmm/swmmpulse/'
+    path = '/mnt/c/Users/albert/documents/SWMMpulse/'
+    files = [p for p in os.listdir(os.path.join(path, "route_tables")) if p[:3] == 'rt_']
+    ls = []
+    for file in files[:]:
+        routetable = _Route_table.from_file(os.path.join(path,"route_tables",file))
+        ratio = round(len([p for p in routetable.content if p[0].classification != "Healthy"])/len(routetable.content),6)
+        sid = int(file.strip(".pickle")[-2:])
+        temp = {"node":evalnode,"ratio":ratio,"id":sid}
+        pproc = Postprocessing.from_rtable(routetable, evalnode, qlut, graph)
+        eval_constituents = [Loading.FECAL, Loading.COV]
+        for const in eval_constituents:
+            entry_loc = os.path.join(path, 'entries', f"{file.rstrip('.pickle')}_{const}.pickle")
+            pproc.process_constituent(const, entry_loc, load=True)
+            t,m = getattr(pproc,const).timeseries()
+            c = pproc.as_conc(m)
+            temp[const] = c
+        ls.append(temp)
+    return ls, t
 
 def load_pproc(rtable):
     #path = 'C:/Users/alber/documents/swmm/swmmpulse/'
@@ -98,7 +120,8 @@ if __name__ == "__main__":
     evalnode = 'MH327-088-1'
     graph, qlut = prepare_environment()
     #generate_rts(graph,qlut)
-    evaluate_rts(graph,qlut,evalnode)
+    ls, ti = create_cseries(graph,qlut,evalnode)
+    df = series_to_dfmi(ls, ti)
     #test_cov(graph, qlut, evalnode)
 
     #testdrive(graph, qlut, evalnode)

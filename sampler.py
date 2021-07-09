@@ -5,7 +5,7 @@ from prouter import _Route_table, Postprocessing, preparation
 from pconstants import Loading
 
 class Sampler:
-    def __init__(self, duration, frequency, volume, resolution=10):
+    def __init__(self, duration=30, frequency="H", volume=0.25, resolution=10):
 
         #temporary start dates
         today = dt.datetime.today()
@@ -45,6 +45,20 @@ class Sampler:
                 constituents[series] = np.mean([df[series][i] for i in slots])
             samples.append(Sample(time, self.volume, constituents))
         return samples
+
+    @staticmethod
+    def extract_series(samples, key="all"):
+        if key == "all":
+            constituents = set.union(*[set(sample.constituents.keys()) for sample in samples])
+        else:
+            constituents = [key]
+        c = {const:[] for const in constituents}
+        t = []
+        for sample in samples:
+            t.append(sample.time)
+            [c[const].append(sample.get(const,0)) for const in constituents]
+        return pd.DataFrame(c, index=t)
+
 
 class Sample:
     def __init__(self, time, volume, constituents):
