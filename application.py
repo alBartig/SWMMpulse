@@ -54,10 +54,11 @@ def create_cseries(graph, qlut, evalnode):
     path = '/mnt/c/Users/albert/documents/SWMMpulse/'
     files = [p for p in os.listdir(os.path.join(path, "route_tables")) if p[:3] == 'rt_']
     ls = []
+    sid = 0
     for file in files[:]:
         routetable = _Route_table.from_file(os.path.join(path,"route_tables",file))
         ratio = round(len([p for p in routetable.content if p[0].classification != "Healthy"])/len(routetable.content),6)
-        sid = int(file.strip(".pickle")[-2:])
+        sid += 1
         temp = {"node":evalnode,"ratio":ratio,"id":sid}
         pproc = Postprocessing.from_rtable(routetable, evalnode, qlut, graph)
         eval_constituents = [Loading.FECAL, Loading.COV]
@@ -122,6 +123,7 @@ if __name__ == "__main__":
     #generate_rts(graph,qlut)
     ls, ti = create_cseries(graph,qlut,evalnode)
     df = series_to_dfmi(ls, ti)
+    df.to_csv(f'/mnt/c/Users/albert/documents/SWMMpulse/cseries.csv')
     #test_cov(graph, qlut, evalnode)
 
     #testdrive(graph, qlut, evalnode)

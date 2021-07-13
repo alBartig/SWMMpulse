@@ -80,7 +80,7 @@ class Group:
         occs = random.choices(index, weights=pattern, k=npoops)
         for occ in occs:
             h,r = divmod(occ,360)
-            m,s = divmod(r,60)
+            m,s = divmod(r,6)
             nowh = timedelta(hours=h,minutes=m,seconds=10*s)
             packetlist.append(PObject(origin, self.name, nowd+nowh, self.constituents))
         return packetlist
@@ -134,8 +134,24 @@ def random_correlation():
     print(f"Minuten: {list(c.keys())}")
     print("Function finished")
 
+def random_pattern():
+    from collections import Counter
+    import matplotlib.pyplot as plt
+
+    env = Environment()
+    population = 20000
+    plist = []
+    [plist.extend(group.plist("sample_node",population)) for group in env.groups]
+    ots = [p.t0 for p in plist]
+    c = Counter(ots)
+    x, heights = list(c.keys()), list(c.values())
+    plt.bar(x, heights, width = 0.002)
+    plt.show()
+
+    print("finished")
+
 def main():
-    random_correlation()
+    random_pattern()
 
 if __name__ == '__main__':
     main()

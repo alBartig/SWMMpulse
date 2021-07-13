@@ -219,7 +219,10 @@ class Postprocessing(TDict):
 
     def as_conc(self, values):
         qseries = self.qlut._explode_eid(self.link)
-        c = [w/(q*Discretization.TIMESTEPLENGTH.seconds) for q,w in list(zip(qseries,values))]
+        try:
+            c = [w/(q*Discretization.TIMESTEPLENGTH.seconds) for q,w in list(zip(qseries,values))]
+        except:
+            pass
         return c
 
     def sample_times(self, duration=120, frequency="H"):

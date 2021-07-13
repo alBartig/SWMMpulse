@@ -355,7 +355,7 @@ class TSeries(TDict):
         if start == None:
             start = self.get_index(self.start)
         else:
-            start = self.get_index(self.tlookup.find_smaller(start))
+            start = self.get_index(self.find_smaller(start))
 
         if end == None:
             end = min(self.get_index(self.end)+1,len(self.timestamps))
@@ -363,12 +363,14 @@ class TSeries(TDict):
             end = min(self.get_index(self.find_larger(end))+1,len(self.timestamps))
 
         #aggregate entries
-        timeseries = sum([entry['values'][start:end] for entry in self.entries])
+        timestamps = self.timestamps[start:end]
+        timeseries = [0] * len(timestamps)
+        timeseries = sum([entry['values'][start:end] for entry in self.entries], timeseries)
 
         if wpath is not None:
             self._to_csv({'timestamps':self.timestamps,'values':timeseries},wpath)
 
-        return (self.timestamps,timeseries)
+        return (timestamps,timeseries)
 
     def traveltime_distribution(self, start=None, end=None):
         #creating bins:
