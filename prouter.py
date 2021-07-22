@@ -177,6 +177,10 @@ class _Route_table:
         print('RTable Object loaded')
         return rp
 
+    def postprocess(self, location, disp):
+        location = [node,graph.get_outletlinks(node)[0]]
+        rt_slice = rtable._extract_node(location,env.dispersion)
+
 class Postprocessing(TDict):
     def __init__(self, extracted_node, qlookup):
         self.node = extracted_node['node']

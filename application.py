@@ -18,7 +18,7 @@ def prepare_environment():
     return graph,qlut
 
 def generate_rts(graph, qlut):
-    fractions = [0.00030,0.00010,0.00005,0.00003]
+    fractions = [0.00070,0.00050,0.00030,0.00010]
     for fraction in fractions:
         env = Environment()
         env.groups[0].weight = (1 - fraction)
@@ -120,7 +120,9 @@ def test_cov(graph, qlut, evalnode):
 if __name__ == "__main__":
     evalnode = 'MH327-088-1'
     graph, qlut = prepare_environment()
+    testdrive(graph, qlut, evalnode)
     #generate_rts(graph,qlut)
+    #evaluate_rts(graph,qlut,evalnode)
     ls, ti = create_cseries(graph,qlut,evalnode)
     df = series_to_dfmi(ls, ti)
     df.to_csv(f'/mnt/c/Users/albert/documents/SWMMpulse/cseries.csv')

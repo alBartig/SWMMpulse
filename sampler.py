@@ -1,8 +1,8 @@
 import numpy as np
 import pandas as pd
 import datetime as dt
-from prouter import _Route_table, Postprocessing, preparation
-from pconstants import Loading
+#from prouter import _Route_table, Postprocessing, preparation
+#from pconstants import Loading
 
 class Sampler:
     def __init__(self, duration=30, frequency="H", volume=0.25, resolution=10):
@@ -33,7 +33,25 @@ class Sampler:
         return self.settings['resolution']
 
     def sample(self, df):
-        date = df.index[0].date()
+        if isinstance(df.columns, pd.MultiIndex):
+            rv = self._sample_mi(df)
+        else:
+            rv = self.extract_series(self._sample_si(df))
+        return rv
+
+    def _sample_mi(self, midf):
+        rd = {}
+        i0 = midf.columns[0][:-1]
+        df = self.extract_series(self._sample_si(midf.xs(i0, axis=1)), miprefix=i0)
+        stepsize = len(midf.columns.levels[midf.columns.nlevels-1])
+        for i in midf.columns[stepsize::stepsize]:
+            miprefix = tuple(i[:-1])
+            samples = self._sample_si(midf.xs(miprefix, axis=1))
+            df = df.join(self.extract_series(samples, miprefix=miprefix))
+        return df
+
+    def _sample_si(self, sidf, as_df=True):
+        date = sidf.index[0].date()
         n = np.floor(self.duration/self.resolution)
         v = self.volume/n
         samples = []
@@ -41,13 +59,13 @@ class Sampler:
             t = dt.datetime.combine(date, time.time())
             slots = pd.date_range(t, periods=n, freq="10S")
             constituents = dict()
-            for series in df:
-                constituents[series] = np.mean([df[series][i] for i in slots])
+            for series in sidf:
+                constituents[series] = np.mean([sidf[series][i] for i in slots])
             samples.append(Sample(time, self.volume, constituents))
         return samples
 
     @staticmethod
-    def extract_series(samples, key="all"):
+    def extract_series(samples, key="all", miprefix=()):
         if key == "all":
             constituents = set.union(*[set(sample.constituents.keys()) for sample in samples])
         else:
@@ -56,8 +74,13 @@ class Sampler:
         t = []
         for sample in samples:
             t.append(sample.time)
-            [c[const].append(sample.get(const,0)) for const in constituents]
-        return pd.DataFrame(c, index=t)
+            [c[const].append(sample.constituents.get(const,0)) for const in constituents]
+        mi = pd.MultiIndex.from_tuples([miprefix + (const,) for const in constituents])
+        rdf = pd.DataFrame(c, index=t).columns=mi
+        mi = pd.MultiIndex.from_tuples([miprefix + (const,) for const in constituents])
+        rdf = pd.DataFrame(c, index=t)
+        rdf.columns = mi
+        return rdf
 
 
 class Sample:
@@ -65,6 +88,13 @@ class Sample:
         self.time = time
         self.volume = volume
         self.constituents = constituents
+
+    def __repr__(self):
+        print(f"Sample volume: {self.volume}")
+        print(f"Sample time:   {self.time}")
+        print(f"Sample contents:")
+        for key, value in self.constituents.items():
+            print(f"{key}: {value}")
 
 class Composite(Sample):
     def __init__(self, samples, weights=None):
@@ -79,6 +109,7 @@ class Composite(Sample):
         for constituent, concentrations in constituents.items():
             constituents[constituent] = np.sum([c*w for c,w in list(zip(concentrations,weights))])/np.sum(weights)
         super().__init__(time, volume, constituents)
+
 
 def load_pproc(qlut, graph, load=True):
     print('Test Postprocessing')
