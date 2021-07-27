@@ -217,7 +217,7 @@ class PObject:
         else:
             return True
 
-    def get_loads(self, constituent, link, qlookup, tlookup):
+    def calc_load(self, constituent, link, qlookup):
         """
         Calculates the load distribution of given constituent and returns loads per timestep and timesteps
         Args:
@@ -225,42 +225,89 @@ class PObject:
         Returns:
             (tuple): Tuple of lists (loads,timesteps)
         """
-        mred = self.max_loads[constituent]
+        reduced_load = self.max_loads[constituent]
         #calculate dispersion spread
-        dist = self._calculate_dispersion_spread(self.dispersion)
+        dispersion_spread = self._calculate_dispersion_spread(self.dispersion)
         #looking up flow velocity and calculate spatial resolution corresponding to timestep and flowvelocity
-        v = round(qlookup.lookup_v(link,self.tm)[0],1)
-        dx = v * Discretization.TIMESTEPLENGTH.total_seconds()
+        flow_velocity = round(qlookup.lookup_v(link, self.tm)[0],1)
+        dx = flow_velocity * Discretization.TIMESTEPLENGTH.total_seconds()
         #creating linear spatial array with distance to load peak, making sure x=0.0 is contained in d
-        borders = (2*np.floor(dist/dx)-1)*dx
+        borders = (2*np.floor(dispersion_spread/dx)-1)*dx
         dx = dx / Discretization.REFINE
         d = np.arange(-borders,borders,dx)
-        #check if pulse load is already spread-out or not / catching div by 0
+        #check whether pulse load is spread-out over more than one dx / catching div by 0
         if len(d) == 0:
-            mt = [mred]
-            t= [tlookup.find_closest(self.tm)]
-            return {'values': mt, 'timestamps': t, 'origin': self.origin, 'traveltime': self.age,
-                    'class': self.classification}
-        #calculate peak loading [unit/m]
-        peak_m = self._peak_triangular(dist) * mred
-        #interpolate loading for each section
-        cx = [max(0, self._interpolate(abs(x), dist, 0, y1=peak_m)) for x in d]
-        #integrate loading for each section and aggregate to timesteps
-        mx = [c*dx for c in cx]
-        mt = [sum(mx[i:(i+Discretization.REFINE)]) for i in range(0,len(mx),Discretization.REFINE)]
-        #convert spatial array to temporal arry
-        ref_time = tlookup.find_closest(self.tm)
-        t = [ref_time + datetime.timedelta(seconds=round(x/v)) for x in d[::Discretization.REFINE]]
+            spatial_loading_aggregated = [reduced_load]
+            d = [0]
+        else:
+            #calculate peak loading [unit/m]
+            peak_loading = self._peak_triangular(dispersion_spread) * reduced_load
+            #interpolate loading for each section
+            spatial_linear_loading = [max(0, self._interpolate(abs(x), dispersion_spread, 0, y1=peak_loading)) for x in d]
+            #integrate loading for each section and aggregate to timesteps
+            spatial_loading_fine = [c*dx for c in spatial_linear_loading]
+            spatial_loading_aggregated = [sum(spatial_loading_fine[i:(i+Discretization.REFINE)]) for i in range(0,len(spatial_loading_fine),Discretization.REFINE)]
+        #convert spatial array to temporal array
+        ref_time = qlookup.find_seconds(self.tm)
+        values = np.zeros(len(qlookup.timestamps))
+        mid = qlookup.timestamps.index(qlookup.norm_time(ref_time))
+        indexer = [round(di/(dx*Discretization.REFINE))+mid for di in d[::Discretization.REFINE]]
+        try:
+            values[indexer] = spatial_loading_aggregated
+        except:
+            pass
+        #t = [ref_time + datetime.timedelta(seconds=round(x/flow_velocity)) for x in d[::Discretization.REFINE]]
         #check mass-balance
-        totalm = sum(mt)
-        deviation = abs(totalm-mred)/mred
+        totalm = sum(spatial_loading_aggregated)
+        deviation = abs(totalm-reduced_load)/reduced_load
         if not deviation <= Loading.MAX_CONTINUITY_ERROR:
-            print(f"Expected load: {mred}\n"
+            print(f"Expected load: {reduced_load}\n"
                   f"Calculated load: {totalm}\n"
                   f"Continuity Error: {deviation*100:.2f} %\n"
                   f"Allowerd Error: {Loading.MAX_CONTINUITY_ERROR*100:.2} %")
             raise MassbalanceError
-        return {'values':mt,'timestamps':t,'origin':self.origin,'traveltime':self.age,'class':self.classification}
+        return values
+
+    def unpack_loading(self, values, timestamps, qlookup):
+        """
+        unpacks values to full day series. Pads all new values with 0
+        Args:
+            values (list):
+            timestamps (list):
+            qlookup (QSeries):
+
+        Returns:
+            list: Extended list of load values
+        """
+        indexers, values = timestamps, values
+        serieslength = len(qlookup.timestamps)
+        valcount = len(values)
+
+        unpacked = np.zeros(serieslength)
+        first = qlookup.timestamps.index(qlookup.norm_time(indexers[0]))
+        try:
+            unpacked[first:first + valcount] = values
+        except:
+            firstsnipped = serieslength - first
+            unpacked[first:] = values[:firstsnipped]
+            unpacked[:valcount - firstsnipped] = values[firstsnipped:]
+        return unpacked
+
+    def get_entry(self, constituent, link, qlookup):
+        """
+        calculates load and unpacks it to return as an entry dictionary to be used in postprocessing object
+        Args:
+            constituent:
+            link:
+            qlookup:
+
+        Returns:
+            dict: entry dict to be used in Postprocessing object
+        """
+        values = self.calc_load(constituent, link, qlookup)
+        #values = self.unpack_loading(values, timestamps, qlookup)
+        tags = {}
+        return {"values":values,'origin':self.origin,'traveltime':self.age,'class':self.classification}
 
     def set_lookup(self, qlookup):
         try:
@@ -313,7 +360,7 @@ def main():
     x = PObject("Testorigin", "Infected", t0=t0, contents=env.groups[1].constituents)
     x.set_arrival(tm)
     x.set_dispersion(env.dispersion)
-    loads = x.get_loads(Loading.FECAL,link,qlut, tlut)
+    loads = x.get_entry(Loading.FECAL, link, qlut, tlut)
     print(loads)
     print("main finished")
 

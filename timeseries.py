@@ -3,6 +3,7 @@ import datetime as dt
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
+from pconstants import Loading
 
 # class TStamps:
 #     def __init__(self, timestamps, freq):
@@ -13,75 +14,75 @@ from tqdm import tqdm
 #                                         freq=freq)
 #
 #
-# class TData:
-#     def __init__(self, timestamps, entries=None, freq="10S", expand=True, eid=None, **kwargs):
-#         self._reg_datetimeindex(timestamps, freq)
-#         self.tags = []
-#
-#     def set_tags(self, tags):
-#         self.tags = tags
-#         return None
-#
-#     def _reg_datetimeindex(self, timestamps, freq):
-#         """
-#         expands entered timestamps to specified frequency
-#         Args:
-#             timestamps (list): list of datetime values or timestamps
-#             freq: Desired frequency, default = "10S"
-#
-#         Returns:
-#             None
-#         """
-#         timestamps = pd.to_datetime(timestamps)
-#         self.date = timestamps[0].date()
-#         self.timestamps = pd.date_range(dt.datetime.combine(self.date, dt.time(hour=0, minute=0, second=0)),
-#                                         dt.datetime.combine(self.date, dt.time(hour=23, minute=59, second=59)),
-#                                         freq=freq)
-#         return None
-#
-#     def _expand_series(self, entry):
-#         """
-#         Maps an input series on the stored datetimeindex. Missing values are interpolated.
-#         Entry must have datetime index
-#         Args:
-#             entry (pd.Series):
-#
-#         Returns:
-#             pd.Series, expanded to stored datetimeindex
-#         """
-#         expanded = pd.Series(entry, index=self.timestamps).interpolate(method="time", limit_direction="both")
-#         return expanded
-#
-#     def _append_entry(self, entry, tags=None):
-#         s = pd.DataFrame(self._expand_series(entry))
-#         if tags:
-#             try:
-#                 tagnames = self.tags
-#             except:
-#                 print("Cannot tag series before assigning tags to object.\nAssign tags with 'set_tags()'")
-#                 raise BaseException
-#             if type(tags) is dict:
-#                 mi = pd.MultiIndex.from_tuples([tuple(tags.get(name, "na") for name in tagnames)], names=tagnames)
-#             elif type(tags) is list:
-#                 mi = pd.MultiIndex.from_tuples([tuple(tags[:len(tagnames)])], names=tagnames)
-#
-#             s.columns = mi
-#
-#         try:
-#             self.df = self.df.join(s)
-#         except:
-#             self.df = pd.DataFrame(s, index=self.timestamps)
-#         return None
-#
-#     def _append_df(self, df):
-#         for column in df:
-#             self._append_entry(df[column])
-#         return None
-#
-#     def _append_entries(entries, tags):
-#         """
-#         """
-#         pass
+class TData:
+    def __init__(self, timestamps, entries=None, freq="10S", expand=True, eid=None, **kwargs):
+        self._reg_datetimeindex(timestamps, freq)
+        self.tags = []
+
+    def set_tags(self, tags):
+        self.tags = tags
+        return None
+
+    def _reg_datetimeindex(self, timestamps, freq):
+        """
+        expands entered timestamps to specified frequency
+        Args:
+            timestamps (list): list of datetime values or timestamps
+            freq: Desired frequency, default = "10S"
+
+        Returns:
+            None
+        """
+        timestamps = pd.to_datetime(timestamps)
+        self.date = timestamps[0].date()
+        self.timestamps = pd.date_range(dt.datetime.combine(self.date, dt.time(hour=0, minute=0, second=0)),
+                                        dt.datetime.combine(self.date, dt.time(hour=23, minute=59, second=59)),
+                                        freq=freq)
+        return None
+
+    def _expand_series(self, entry):
+        """
+        Maps an input series on the stored datetimeindex. Missing values are interpolated.
+        Entry must have datetime index
+        Args:
+            entry (pd.Series):
+
+        Returns:
+            pd.Series, expanded to stored datetimeindex
+        """
+        expanded = pd.Series(entry, index=self.timestamps).interpolate(method="time", limit_direction="both")
+        return expanded
+
+    def _append_entry(self, entry, tags=None):
+        s = pd.DataFrame(self._expand_series(entry))
+        if tags:
+            try:
+                tagnames = self.tags
+            except:
+                print("Cannot tag series before assigning tags to object.\nAssign tags with 'set_tags()'")
+                raise BaseException
+            if type(tags) is dict:
+                mi = pd.MultiIndex.from_tuples([tuple(tags.get(name, "na") for name in tagnames)], names=tagnames)
+            elif type(tags) is list:
+                mi = pd.MultiIndex.from_tuples([tuple(tags[:len(tagnames)])], names=tagnames)
+
+            s.columns = mi
+
+        try:
+            self.df = self.df.join(s)
+        except:
+            self.df = pd.DataFrame(s, index=self.timestamps)
+        return None
+
+    def _append_df(self, df):
+        for column in df:
+            self._append_entry(df[column])
+        return None
+
+    def _append_entries(entries, tags):
+        """
+        """
+        pass
 #
 # class TSeries:
 #     def __init__(self, timestamps, entries, freq="10S", expand=True, eid=None, **kwargs):
@@ -209,7 +210,7 @@ class TDict:
         time.replace(second=secs)
         return datetime.datetime.combine(self.date,time)
 
-    def find_closest(self, time):
+    def find_seconds(self, time):
         h = time.hour
         m = time.minute
         s = time.second
@@ -516,177 +517,15 @@ class TSeries:
                 "H": 3600}
 
     def __init__(self, timestamps, entries=None, freq="10S", tagnames=[]):
-        self._reg_datetimeindex(timestamps, freq)
-        self.tags = tagnames
+        self.entrycount = 0
+        self.date, timestamps = self._reg_datetimeindex(timestamps, freq)
         self.freq = int(freq[:-1] * self.freqmult[freq[-1:]])
+        self.dfseries = pd.DataFrame(index=timestamps)
+        self.dftags = pd.DataFrame(columns=tagnames+["id"])
+        self.timestamps = list(timestamps)
 
         if entries:
-            self._append_entries(entries, timestamps)
-
-    def set_tags(self, tags):
-        self.tags = tags
-        return None
-
-    def norm_time(self, time):
-        return dt.datetime.combine(self.date, time.time())
-
-    def _reg_datetimeindex(self, timestamps, freq):
-        """
-        expands entered timestamps to specified frequency
-        Args:
-            timestamps (list): list of datetime values or timestamps
-            freq: Desired frequency, default = "10S"
-
-        Returns:
-            None
-        """
-        timestamps = pd.to_datetime(timestamps)
-        self.date = timestamps[0].date()
-        self.timestamps = pd.date_range(dt.datetime.combine(self.date, dt.time(hour=0, minute=0, second=0)),
-                                        dt.datetime.combine(self.date, dt.time(hour=23, minute=59, second=59)),
-                                        freq=freq)
-        return None
-
-    def find_closest_dt(self, time):
-        secs = time.second
-
-        m = secs % self.freq
-        if m < self.freq / 2:
-            delt = dt.timedelta(seconds=(-m))
-        else:
-            delt = dt.timedelta(seconds=(self.freq - m))
-        return time + delt
-
-    def _expand_series(self, entry):
-        """
-        Maps an input series on the stored datetimeindex. Missing values are interpolated.
-        Entry must have datetime index
-        Args:
-            entry (pd.Series):
-
-        Returns:
-            pd.Series, expanded to stored datetimeindex
-        """
-        expanded = pd.Series(entry, index=self.timestamps).interpolate(method="time", limit_direction="both")
-        return expanded
-
-    def _append_series(self, series, tags=None):
-        s = pd.DataFrame(self._expand_series(series))
-        if tags:
-            try:
-                tagnames = self.tags
-            except:
-                print("Cannot tag series before assigning tags to object.\nAssign tags with 'set_tags()'")
-                raise BaseException
-            if type(tags) is dict:
-                mi = pd.MultiIndex.from_tuples([tuple(tags.get(name, "na") for name in tagnames)], names=tagnames)
-            elif type(tags) is list:
-                mi = pd.MultiIndex.from_tuples([tuple(tags[:len(tagnames)])], names=tagnames)
-
-            s.columns = mi
-
-        try:
-            self.df = self.df.join(s)
-        except:
-            self.df = pd.DataFrame(s, index=self.timestamps)
-        return None
-
-    def _append_df(self, df):
-        for column in df:
-            self._append_entry(df[column])
-        return None
-
-    def _append_entry(self, entry, timestamps=None):
-        if timestamps is None:
-            s = pd.Series(entry["values"], index=entry["timestamps"])
-        else:
-            s = pd.Series(entry["values"], index=timestamps)
-
-        self._append_series(s, tags=entry["tags"])
-        return None
-
-    def _append_entries(self, entries, timestamps):
-        """
-        """
-        for entry in entries:
-            self._append_entry(entry, timestamps=timestamps)
-
-# class QSeries(TSeries):
-#     """
-#     Creates a lookup table for flow velocity from a swmm out-file
-#     """
-#     def __init__(self, out_file, **kwargs):
-#         from swmm_api import read_out_file
-#         with read_out_file(out_file) as out:
-#             df = out.to_frame()
-#             df = df.xs(('link','Flow_velocity'),axis=1,level=[0,2])
-#             timestamps = df.index.values
-#             entries = [{'values':df[col].values,'link':col} for col in df]
-#             super().__init__(timestamps, entries, expand=False, eid='link')
-#
-#     def lookup_v(self, link, time):
-#         """
-#         Returns velocity in link at time. If v == 0 in link at time, the first v > 0
-#         is returned together with delay time. If v never rises above 0 after, it returns None,None
-#         Args:
-#             link (str):
-#             time (str):
-#
-#         Returns:
-#             tuple: (velocity, delay)
-#         """
-#         if time.date() != self.date:
-#             time = datetime.datetime.combine(self.date, time.time())
-#         querytime = self.find_closest_dt(time)
-#         index = self.get_index(querytime)
-#         iorg = index
-#         try:
-#             vvalues = self.entries[self.eids.index(link)]['values']
-#         except:
-#             pass
-#         v = vvalues[index]
-#         imax = self.count - 1
-#         while v == 0:
-#             if index != imax: #Reset index to 0 if at end of array
-#                 index += 1
-#             else:
-#                 index = 0
-#             v = vvalues[index]
-#             if index == iorg: #Break if full loop was done
-#                 return None,None
-#         if index > iorg: #Return if index has not looped around index > time
-#             delay = self.get_datetime(index)-time
-#         elif index < iorg: #Return if index has looped - index < time
-#             delay = datetime.timedelta(days=1) - (time-self.get_datetime(index))
-#         else:
-#             delay = datetime.timedelta(seconds=0)
-#         if delay < datetime.timedelta(seconds=0):
-#             print(f'delay: {delay}, time: {time}, ')
-#             raise PlausibilityError()
-#         return v,delay
-#
-#     def m_to_s(self, link, time, distance):
-#         '''
-#         :param link: str; Link to be queried for
-#         :param time: datetime obj, Time to be queried for
-#         :param distance: float, Distance to be converted into time
-#         :return: float, flowtime difference in seconds
-#         '''
-#         velocity,delay = self.lookup_v(link,time)
-#         s = distance/velocity
-#         return s
-
-class QSeries():
-    freqmult = {"S": 1,
-                "M": 60,
-                "H": 3600}
-
-    def __init__(self, out_file, freq="10S"):
-        dftemp = self.load_ofile(out_file)
-        self.date, timestamps = self._reg_datetimeindex(dftemp.index, freq)
-        self.freq = int(freq[:-1] * self.freqmult[freq[-1:]])
-        dfq = pd.DataFrame(index=timestamps)
-        self.dfq = dfq.join(dftemp).interpolate(limit_direction="both")
+            self._append_entries(entries)
 
     def norm_time(self, time):
         return dt.datetime.combine(self.date, time.time())
@@ -714,26 +553,133 @@ class QSeries():
             None
         """
         timestamps = pd.to_datetime(timestamps)
-        date = timestamps[0]
+        date = timestamps[1]
         timestamps = pd.date_range(date.floor("D"), date.ceil("D"), freq=freq)[:-1]
         return date, timestamps
 
-    def load_ofile(self, out_file, **kwargs):
-        from swmm_api import read_out_file
-        with read_out_file(out_file) as out:
-            df = out.to_frame()
-            df = df.xs(('link', 'Flow_velocity'), axis=1, level=[0, 2])
-            timestamps = df.index.values
-            entries = [{'values': df[col].values, 'link': col} for col in df]
-            return df
+    def _append_entry(self, entry):
+        entryid = self.entrycount
+
+        series = pd.Series(entry["values"], index=entry["timestamps"], name=entryid)
+
+        entry["id"] = entryid
+        tags = pd.Series(entry, name=entryid)
+
+        self.dfseries = self.dfseries.join(series.reindex(self.timestamps).fillna(0))
+        self.dftags = self.dftags.join(tags)
+
+        self.entrycount += 1
+        return None
+
+    def _append_entries(self, entries):
+        """
+        """
+        tempseries = {}
+        temptags = {}
+        tagnames = self.dftags.columns
+
+        for entry in tqdm(entries, desc="Appending entries to Postprocessing..."):
+            entryid = self.entrycount
+            entry["id"] = entryid
+
+            unpacked = entry["values"]
+            tempseries[entryid] = unpacked
+
+            tags = [entry[tag] for tag in tagnames]
+            temptags[entryid] = tags
+
+            self.entrycount += 1
+
+        try:
+            self.dfseries = self.dfseries.join(pd.DataFrame(tempseries, index=self.timestamps))
+        except:
+            pass
+        try:
+            self.dftags = self.dftags.append(pd.DataFrame.from_dict(temptags, orient="index", columns=tagnames))
+        except:
+            pass
+        print("Entries unpacked")
+
+    def _append_df(self, df):
+        for column in df:
+            self._append_entry(df[column])
+        return None
+
+    def timeseries(self, wpath=None, plot=False):
+        """
+        returns all entries aggregated into one series along with the timesteps
+        Args:
+            start (datetime.datetime): start of timeseries (optional), default: first value in timestamps
+            end (datetime.datetime): end of timeseries (optional), default: last value in timestamps
+
+        Returns:
+            tuple: (values,timestamps)
+        """
+        timeseries = self.dfseries.sum(axis=1)
+
+        if wpath is not None:
+            timeseries.to_csv(wpath)
+        if plot is True:
+            timeseries.plot().get_figure().savefig(wpath.strip("csv") + "png")
+
+        return timeseries
+
+
+class QSeries:
+    freqmult = {"S": 1,
+                "M": 60,
+                "H": 3600}
+
+    def __init__(self, inp, freq="10S"):
+        self._prepare_metadata(inp, freq)
+        self._prepare_lookup(inp)
+
+    def _prepare_metadata(self, inp, freq):
+        self.date, self.timestamps = self._reg_datetimeindex(inp.index, freq)
+        self.freq = int(freq[:-1] * self.freqmult[freq[-1:]])
+
+    def _prepare_lookup(self, inp):
+        self.lookup = inp.reindex(pd.DatetimeIndex(self.timestamps)).interpolate(limit_direction="both")
+
+    def norm_time(self, time):
+        return dt.datetime.combine(self.date, time.time())
+
+    def find_seconds(self, time):
+        freq = self.freq
+        secs = time.second
+
+        m = secs % freq
+        if m < freq / 2:
+            delt = dt.timedelta(seconds=(-m))
+        else:
+            delt = dt.timedelta(seconds=(freq - m))
+        return time + delt
+
+    @staticmethod
+    def _reg_datetimeindex(timestamps, freq):
+        """
+        expands entered timestamps to specified frequency
+        Args:
+            timestamps (list): list of datetime values or timestamps
+            freq: Desired frequency, default = "10S"
+
+        Returns:
+            None
+        """
+        timestamps = pd.to_datetime(timestamps)
+        date = timestamps[1]
+        timestamps = pd.date_range(date.floor("D"), date.ceil("D"), freq=freq)[:-1]
+        return date, list(timestamps)
 
     def lookup_v(self, link, time):
+        return self._lookup_v(self.lookup, time)
+
+    def _lookup_v(self, s, time):
         time = self.norm_time(time)
-        s = self.dfq[link]
         try:
             v = s[time]
         except:
-            v = s[self.norm_time(self.find_seconds(time, self.freq))]
+            v = s[self.norm_time(self.find_seconds(time))]
         if v != 0.0:
             return v, dt.timedelta(seconds=0)
         else:
@@ -750,6 +696,32 @@ class QSeries():
                 except:
                     return None,None
 
+    def meter_to_seconds(self, time, distance):
+        velocity, delay = self.lookup_v(time)
+        s = distance / velocity
+        return s
+
+    def get_subset(self, link):
+        return QSeries(self.lookup[link])
+
+class QFrame(QSeries):
+    def __init__(self, o_path, freq="10S"):
+        inp = self.from_out_file(o_path)
+        super().__init__(inp, freq)
+
+    def from_out_file(self, out_file, freq="10S"):
+        from swmm_api import read_out_file
+        with read_out_file(out_file) as out:
+            df = out.to_frame()
+            df = df.xs(('link', 'Flow_velocity'), axis=1, level=[0, 2])
+            #timestamps = df.index.values
+            #entries = [{'values': df[col].values, 'link': col} for col in df]
+            return df
+
+    def lookup_v(self, link, time):
+        s = self.lookup[link]
+        return self._lookup_v(s, time)
+
     def meter_to_seconds(self, link, time, distance):
         velocity, delay = self.lookup_v(link, time)
         s = distance / velocity
@@ -759,7 +731,7 @@ def test_qseries():
     print('Test QSeries')
     #of_path = 'C:/Users/alber/Documents/swmm/swmmpulse/HS_calib_120_simp.out'
     of_path = '/mnt/c/Users/albert/Documents/SWMMpulse/HS_calib_120_simp.out'
-    qlut = QSeries(of_path)
+    qlut = QFrame(of_path)
     print('Test QSeries finished')
 
 def test_diffs():
@@ -774,7 +746,7 @@ def test_diffs():
     times = []
     for delta in deltas:
         time = t0 + dt.timedelta(seconds=delta)
-        closest = tlut.find_closest(time)
+        closest = tlut.find_seconds(time)
         diffs.append(min((closest - time).seconds, abs((closest - time).seconds - 86400)))
         times.append(time)
     df = pd.DataFrame.from_records(zip(deltas, diffs, times), columns=['Deltas', 'Differenzen', 'Timestamps'])
@@ -785,7 +757,7 @@ def test_diffs():
 
 def load_qlut():
     lpath = '/mnt/c/Users/albert/Documents/SWMMpulse/HS_calib_120_simp.out'
-    qlut = QSeries(lpath)
+    qlut = QFrame(lpath)
     return qlut
 
 def load_graph():
@@ -806,10 +778,13 @@ def test_pproc(graph, qlut, evalnode):
     rt_slice = routetable._extract_node(location, Environment().dispersion)
 
     pproc = Postprocessing.from_rtable(routetable, evalnode, qlut, graph)
+    #pproc = Postprocessing.from_rtable(routetable, evalnode, qlut.get_subset(graph.get_outletlinks(evalnode)[0]), graph)
     eval_constituent = Loading.FECAL
     entry_loc = os.path.join(fpath, 'entries', "entries_testdrive.pickle")
     pproc.process_constituent(eval_constituent, entry_loc, load=False)
-    pproc.Fecal_Matter.timeseries(wpath=os.path.join(fpath, 'timeseries', 'timeseries_testdrive.pickle'))
+    #pproc.save(os.path.join(fpath, 'timeseries', 'timeseries_testdrive.pickle'))
+    #pproc = Postprocessing.from_file(os.path.join(fpath, 'timeseries', 'timeseries_testdrive.pickle'))
+    pproc.Fecal_Matter.timeseries(os.path.join(fpath, 'timeseries', 'timeseries_testdrive.csv'), True)
     print("Function finished")
 
 def main():

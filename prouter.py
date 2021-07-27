@@ -181,15 +181,12 @@ class _Route_table:
         location = [node,graph.get_outletlinks(node)[0]]
         rt_slice = rtable._extract_node(location,env.dispersion)
 
-class Postprocessing(TDict):
+class Postprocessing:
     def __init__(self, extracted_node, qlookup):
         self.node = extracted_node['node']
         self.link = extracted_node['link']
         self.packets = extracted_node['packets']
         self.qlut = qlookup
-        start, end = qlookup.timestamps[0], qlookup.timestamps[0]+datetime.timedelta(days=1)
-        timestamps = [start+i*Discretization.TIMESTEPLENGTH for i in range(int((end-start)/Discretization.TIMESTEPLENGTH))]
-        super().__init__(timestamps)
 
     @classmethod
     def from_prouter(cls, prouter, node):
@@ -203,10 +200,20 @@ class Postprocessing(TDict):
         rt_slice = rtable._extract_node(location,env.dispersion)
         return cls(rt_slice, qlookup)
 
+    @classmethod
+    def from_file(cls, fpath):
+        with open(fpath,'rb') as fobj:
+            rp = pickle.load(fobj)
+        print(f'PProc Object loaded from: {fpath}')
+        return rp
+
     def _create_tseries(self, constituent, entry_loc, load=False):
         if load is False:
             print('processing packets\n')
-            entries = [p.get_loads(constituent, self.link, self.qlut, self) for p in tqdm(self.packets) if p.__contains__(constituent)]
+            entries = []
+            for packet in tqdm(self.packets, "Calculating loads..."):
+                if packet.__contains__(constituent):
+                    entries.append(packet.get_entry(constituent, self.link, self.qlut))
             with open(entry_loc, 'wb') as fobj:
                 pickle.dump(entries, fobj)
                 print('entries saved')
@@ -214,7 +221,8 @@ class Postprocessing(TDict):
             with open(entry_loc, 'rb') as fobj:
                 entries = pickle.load(fobj)
                 print('entries loaded')
-        return TSeries(self.timestamps,entries)
+        tagnames = list(set(entries[0].keys()).difference(["values","timestamps"]))
+        return TSeries(self.qlut.timestamps, entries, tagnames=tagnames)
 
     def process_constituent(self, constituent, entry_loc , load=False):
         ts = self._create_tseries(constituent, entry_loc, load)
@@ -228,6 +236,12 @@ class Postprocessing(TDict):
         except:
             pass
         return c
+
+    def save(self, opath):
+        with open(opath,'wb') as fobj:
+            pickle.dump(self,fobj)
+        print(f'PProc Object saved: {opath}')
+        return True
 
     def sample_times(self, duration=120, frequency="H"):
         n = np.floor(duration / 10)
