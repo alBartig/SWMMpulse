@@ -78,11 +78,11 @@ class Group:
         weighted_population = get_weighted_population(population, self.weight)
         npoops = int(round(weighted_population*self.dailypoops))
         occs = random.choices(index, weights=pattern, k=npoops)
-        for occ in occs:
+        for i, occ in enumerate(occs):
             h,r = divmod(occ,360)
             m,s = divmod(r,6)
             nowh = timedelta(hours=h,minutes=m,seconds=10*s)
-            packetlist.append(PObject(origin, self.name, nowd+nowh, self.constituents))
+            packetlist.append(PObject(origin, self.name, nowd+nowh, self.constituents, pid=f"P{i}"))
         return packetlist
 
 
@@ -93,7 +93,7 @@ class DefaultGroups:
 
 
 class Environment:
-    def __init__(self, groups=[DefaultGroups.HEALTHY, DefaultGroups.INFECTED], dispersion=1.6, date=datetime(day=17,month=8,year=2020)):
+    def __init__(self, groups=[DefaultGroups.HEALTHY, DefaultGroups.INFECTED], dispersion=0.16, date=datetime(day=17,month=8,year=2020)):
         self.dispersion = dispersion
         self.groups = groups
         self.date = date

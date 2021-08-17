@@ -7,11 +7,12 @@ from Exceptions import MassbalanceError
 from timeseries import TDict
 
 class PObject:
-    def __init__(self, origin, classification, t0, contents):
+    def __init__(self, origin, classification, t0, contents, pid=None):
         self.origin = origin
         self.classification = classification
         self.t0 = t0
         self.contents = contents
+        self.pid = pid
 
     def __repr__(self):
         return f'PObject[{self.origin}, {self.classification}, {self.t0}]\n'
@@ -24,6 +25,13 @@ class PObject:
 
     def as_seconds(self, time):
         return time.hour*3600 + time.minute*60 + time.second
+
+    def to_list(self):
+        return [self.pid, self.origin, self.classification, self.t0, [c.name for c in self.contents]]
+
+    @property
+    def tags(self):
+        return ["pid", "origin_location", "classification", "origin_time", "contents"]
 
     def _calc_arriving_load(self, constituent):
         '''
@@ -307,7 +315,7 @@ class PObject:
         values = self.calc_load(constituent, link, qlookup)
         #values = self.unpack_loading(values, timestamps, qlookup)
         tags = {}
-        return {"values":values,'origin':self.origin,'traveltime':self.age,'class':self.classification}
+        return {"values":values,'origin':self.origin,'traveltime':self.age,'class':self.classification,"pid":self.pid}
 
     def set_lookup(self, qlookup):
         try:
@@ -330,6 +338,7 @@ class PObject:
             td = tm - self.t0
             self.age = td.total_seconds()
         except:
+            print(f"tm: {tm}, t0: {self.t0}")
             raise ValueError
         self.max_loads = {}
         for constituent in self.contents:

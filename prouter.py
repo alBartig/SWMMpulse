@@ -10,6 +10,8 @@ import pickle
 from Exceptions import RoutingError, PlausibilityError
 import pandas as pd
 import numpy as np
+import os
+from copy import copy, deepcopy
 
 class PRouter:
     def __init__(self,graph,qlookup):
@@ -71,14 +73,14 @@ class PRouter:
         #print('Path created successfully')
         return ppath
 
-    def route(self):
+    def route(self, rtname):
         '''
         routes packets from each node and appends them to DataObject Route_Table
         :return: returns True if successful
         '''
         print('Extracting nodes')
         nodes = self.graph.nodes
-        route_table = _Route_table(nodes)
+        route_table = _Route_table(nodes, rtname)
         print('Creating packets and routing Nodes')
         for node in tqdm(nodes):
             pop = self.graph.get_nodevalue(node,'population')
@@ -103,20 +105,17 @@ class PRouter:
         return rp
 
 class _Route_table:
-    def __init__(self, nodes):
+    def __init__(self, nodes, name):
         self.nodes = nodes
         self.columns = ['packets', *self.nodes]
         self.size = len(self.columns)
         self.content = []
+        self.name = name
 
     def append_rplist(self,path_nodes,rplist):
         columns = self._find_columns(path_nodes)
-        try:
-            for routed_packet in rplist:
-                self._append_rpacket(routed_packet, columns=columns)
-        except:
-            print('Could not append routed packetlist')
-            raise BaseException
+        for routed_packet in rplist:
+            self._append_rpacket(routed_packet, columns=columns)
 
     def _append_rpacket(self, packet, columns=False):
         packet, stops = packet[0],packet[1]
@@ -124,8 +123,8 @@ class _Route_table:
         if columns == False:
             path = [stop[0] for stop in stops]
             columns = self._find_columns(path)
-        #array of zeros of correct size is generated
-        line = [0] * self.size
+        #array of nan of correct size is generated
+        line = self.size*[np.NaN]
         #add packet to first field
         line[0] = packet
         #fill columns that are being passed
@@ -156,17 +155,30 @@ class _Route_table:
         :return: list, list containing all arriving packets with information in list: (packet, ta) of
         the packets at this node
         '''
-        from copy import copy
         node,link = location[0],location[1]
         index = self._find_columns((node,))[0]
-        nlist = [copy(row[0]).set_arrival(row[index]) for row in self.content\
-                 if row[index] != 0]
+        nlist = [copy(row[0]).set_arrival(row[index]) for row in self.content if type(row[index]) != float]
         [p.set_dispersion(disp) for p in nlist]
         return {'node':node, 'link':link, 'packets':nlist}
 
     def to_file(self, fpath):
         with open(fpath,'wb') as fobj:
             pickle.dump(self,fobj)
+        print('RTable Object saved')
+        return True
+
+    def to_parquet(self, fpath):
+        #extract packets and write to table
+        packets = [r[0].to_list() for r in self.content]
+        dfp = pd.DataFrame(packets, columns=self.content[0][0].tags)
+        dfp.to_parquet(os.path.join(fpath,self.name+"_packets.parquet"), compression="brotli")
+
+        #write routetable to table
+        content = deepcopy(self.content)
+        for row in content:
+            row[0] = row[0].pid
+        dfrt = pd.DataFrame(content, columns=self.columns)
+        dfrt.to_parquet(os.path.join(fpath,self.name+"_routetable.parquet"), compression="brotli")
         print('RTable Object saved')
         return True
 
@@ -221,7 +233,7 @@ class Postprocessing:
             with open(entry_loc, 'rb') as fobj:
                 entries = pickle.load(fobj)
                 print('entries loaded')
-        tagnames = list(set(entries[0].keys()).difference(["values","timestamps"]))
+        tagnames = list(set(entries[0].keys()).difference(["pid","values","timestamps"]))
         return TSeries(self.qlut.timestamps, entries, tagnames=tagnames)
 
     def process_constituent(self, constituent, entry_loc , load=False):

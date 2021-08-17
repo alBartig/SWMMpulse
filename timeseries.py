@@ -3,6 +3,7 @@ import datetime as dt
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
+import os
 from pconstants import Loading
 
 # class TStamps:
@@ -521,7 +522,7 @@ class TSeries:
         self.date, timestamps = self._reg_datetimeindex(timestamps, freq)
         self.freq = int(freq[:-1] * self.freqmult[freq[-1:]])
         self.dfseries = pd.DataFrame(index=timestamps)
-        self.dftags = pd.DataFrame(columns=tagnames+["id"])
+        self.dftags = pd.DataFrame(columns=tagnames)
         self.timestamps = list(timestamps)
 
         if entries:
@@ -529,6 +530,11 @@ class TSeries:
 
     def norm_time(self, time):
         return dt.datetime.combine(self.date, time.time())
+
+    def to_parquet(self, path):
+        self.dfseries.columns = [str(c) for c in self.dfseries.columns]
+        self.dfseries.to_parquet(os.path.join(path, (self.name + "_series.parquet")))
+        self.dftags.to_parquet(os.path.join(path, (self.name + "_tags.parquet")))
 
     @staticmethod
     def find_seconds(time, freq):
@@ -579,8 +585,7 @@ class TSeries:
         tagnames = self.dftags.columns
 
         for entry in tqdm(entries, desc="Appending entries to Postprocessing..."):
-            entryid = self.entrycount
-            entry["id"] = entryid
+            entryid = entry["pid"]
 
             unpacked = entry["values"]
             tempseries[entryid] = unpacked

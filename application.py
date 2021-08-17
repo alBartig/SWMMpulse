@@ -1,4 +1,4 @@
-from timeseries import QSeries
+from timeseries import QSeries, QFrame
 from pobject import PObject
 from prouter import PRouter, Postprocessing, _Route_table
 from network_lib import DirectedTree as ntwk, GraphConstants as gc
@@ -11,7 +11,7 @@ from helpers import series_to_dfmi
 def prepare_environment():
     lpath = '/mnt/c/Users/albert/Documents/SWMMpulse/HS_calib_120_simp.out'
     #lpath = 'C:/Users/alber/Documents/swmm/swmmpulse/HS_calib_120_simp.out'
-    qlut = QSeries(lpath)
+    qlut = QFrame(lpath)
     gpath = '/mnt/c/Users/albert/documents/SWMMpulse/HS_calib_120_simp/'
     #gpath = 'C:/Users/alber/documents/swmm/swmmpulse/HS_calib_120_simp/'
     graph = ntwk.from_directory(gpath)
@@ -74,7 +74,7 @@ def create_cseries(graph, qlut, evalnode):
 def load_pproc(rtable):
     #path = 'C:/Users/alber/documents/swmm/swmmpulse/'
     path = '/mnt/c/Users/albert/documents/SWMMpulse/'
-    pfile = Postprocessing.from_rtable(route)
+    pfile = Postprocessing.from_rtable(rtable)
 
 def plot_data(graph, qlut, evalnode):
     path = 'C:/Users/alber/documents/swmm/swmmpulse'
@@ -116,18 +116,37 @@ def test_cov(graph, qlut, evalnode):
     pproc.process_constituent(Loading.COV, entry_loc=os.path.join(path,'entries/rt_f00003_00_Cov_RNA.pickle'), load=False)
     print('test_cov finished')
 
+def bulk_simulation():
+    # Settings
+    path = f'/mnt/c/Users/albert/documents/SWMMpulse/'
+    n = 1
+    evalnode = 'MH327-088-1'
+    env = Environment()
+    graph, qlut = prepare_environment()
+    constituents = [Loading.FECAL, Loading.COV]
+
+    # Simulations
+    for i in range(n):
+        fraction = 0.1
+        env.groups[0].weight = (1 - fraction)
+        env.groups[1].weight = fraction
+        fname = f"rt_scenario_{str(i).zfill(3)}"
+
+        # Create routetable
+        router = PRouter(graph=graph, qlookup=qlut)
+        router.env = env
+        routetable = router.route(fname)
+        routetable.to_parquet(os.path.join(path, "route_tables"))
+
+        # Slice routetable
+        pproc = Postprocessing.from_rtable(routetable, evalnode, qlut, graph)
+
+        # Create timeseries for each constituent
+        for constituent in constituents:
+            pproc.process_constituent(constituent, os.path.join(path, "entries"))
+            pproc.__getattribute__(constituent).to_parquet(os.path.join(path, "entries"))
 
 if __name__ == "__main__":
-    evalnode = 'MH327-088-1'
-    graph, qlut = prepare_environment()
-    testdrive(graph, qlut, evalnode)
-    #generate_rts(graph,qlut)
-    #evaluate_rts(graph,qlut,evalnode)
-    ls, ti = create_cseries(graph,qlut,evalnode)
-    df = series_to_dfmi(ls, ti)
-    df.to_csv(f'/mnt/c/Users/albert/documents/SWMMpulse/cseries.csv')
-    #test_cov(graph, qlut, evalnode)
-
-    #testdrive(graph, qlut, evalnode)
+    bulk_simulation()
 
     print('finished')
