@@ -14,7 +14,7 @@ class Loading:
     LOAD = 'specific_loading'
     CLASSIFICATIONS = 'specific_classifications'
     DISPERSION = 'dispersion'
-    FECAL = 'Fecal_Matter'
-    COV = 'Cov_RNA'
-    PEP = 'Pepper_virus'
+    FECAL = 'Fecal-Matter'
+    COV = 'Cov-RNA'
+    PEP = 'Pepper-virus'
     MAX_CONTINUITY_ERROR = 0.02

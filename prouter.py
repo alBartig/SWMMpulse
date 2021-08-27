@@ -48,7 +48,7 @@ class PRouter:
     def route_plist(self,plist, path):
         return [self.route_packet(p, path) for p in plist]
 
-    def node_plist(self, nname, npop):
+    def node_plist(self, nname, npop, startid):
         """
         Creates packetlist (plist) for node
         Args:
@@ -58,7 +58,10 @@ class PRouter:
             list: list with pobjects for each group in self.env
         """
         plist = []
-        [plist.extend(group.plist(nname,npop,self.env.date)) for group in self.env.groups]
+        for group in self.env.groups:
+            new_plist = group.plist(nname,npop,self.env.date,startid)
+            startid += len(new_plist)
+            plist += new_plist
         #print('Packetlist created successfully')
         return plist
 
@@ -78,17 +81,19 @@ class PRouter:
         routes packets from each node and appends them to DataObject Route_Table
         :return: returns True if successful
         '''
-        print('Extracting nodes')
+        #print('Extracting nodes')
         nodes = self.graph.nodes
         route_table = _Route_table(nodes, rtname)
-        print('Creating packets and routing Nodes')
-        for node in tqdm(nodes):
+        startid = 0
+        #print('Creating packets and routing Nodes')
+        for node in tqdm(nodes, desc="Routing packets..."):
             pop = self.graph.get_nodevalue(node,'population')
-            plist = self.node_plist(node,pop)
+            plist = self.node_plist(node,pop,startid)
+            startid += len(plist)
             ppath = self.node_path(node)
             rplist = self.route_plist(plist,ppath)
             route_table.append_rplist([stop[0] for stop in ppath],rplist)
-        print(f'Route_Table created. {len(route_table.content)} Packets appended')
+        #print(f'Route_Table created. {len(route_table.content)} Packets appended')
         return route_table
 
     def to_file(self, fpath):
@@ -168,18 +173,23 @@ class _Route_table:
         return True
 
     def to_parquet(self, fpath):
+        #import time
         #extract packets and write to table
-        packets = [r[0].to_list() for r in self.content]
+        packets = [r[0].to_list() for r in tqdm(self.content, desc="Saving packets...")]
         dfp = pd.DataFrame(packets, columns=self.content[0][0].tags)
         dfp.to_parquet(os.path.join(fpath,self.name+"_packets.parquet"), compression="brotli")
 
         #write routetable to table
-        content = deepcopy(self.content)
-        for row in content:
+        #start = time.time()
+        _content = []
+        for row in self.content:
+            _content.append([row[0],*row[1:]])
+        #print(f"Copied rt-contents: {time.time()-start:.3f} s")
+        for row in tqdm(_content, desc="Saving routetable..."):
             row[0] = row[0].pid
-        dfrt = pd.DataFrame(content, columns=self.columns)
+        dfrt = pd.DataFrame(_content, columns=self.columns).set_index("packets").astype("str")
         dfrt.to_parquet(os.path.join(fpath,self.name+"_routetable.parquet"), compression="brotli")
-        print('RTable Object saved')
+        #print('RTable Object saved')
         return True
 
     @staticmethod
@@ -194,11 +204,12 @@ class _Route_table:
         rt_slice = rtable._extract_node(location,env.dispersion)
 
 class Postprocessing:
-    def __init__(self, extracted_node, qlookup):
+    def __init__(self, extracted_node, qlookup, name):
         self.node = extracted_node['node']
         self.link = extracted_node['link']
         self.packets = extracted_node['packets']
         self.qlut = qlookup
+        self.name = name
 
     @classmethod
     def from_prouter(cls, prouter, node):
@@ -210,7 +221,7 @@ class Postprocessing:
     def from_rtable(cls, rtable, node, qlookup, graph, env=Environment()):
         location = [node,graph.get_outletlinks(node)[0]]
         rt_slice = rtable._extract_node(location,env.dispersion)
-        return cls(rt_slice, qlookup)
+        return cls(rt_slice, qlookup, "pproc"+rtable.name.strip("rt"))
 
     @classmethod
     def from_file(cls, fpath):
@@ -219,25 +230,25 @@ class Postprocessing:
         print(f'PProc Object loaded from: {fpath}')
         return rp
 
-    def _create_tseries(self, constituent, entry_loc, load=False):
+    def _create_tseries(self, constituent, entry_loc, load=False, name=None):
         if load is False:
-            print('processing packets\n')
+            #print('processing packets\n')
             entries = []
-            for packet in tqdm(self.packets, "Calculating loads..."):
+            for packet in tqdm(self.packets, f"Calculating loads from packets for {constituent}..."):
                 if packet.__contains__(constituent):
                     entries.append(packet.get_entry(constituent, self.link, self.qlut))
-            with open(entry_loc, 'wb') as fobj:
-                pickle.dump(entries, fobj)
-                print('entries saved')
+            # with open(entry_loc, 'wb') as fobj:
+            #     pickle.dump(entries, fobj)
+            #     print('entries saved')
         else:
             with open(entry_loc, 'rb') as fobj:
                 entries = pickle.load(fobj)
                 print('entries loaded')
         tagnames = list(set(entries[0].keys()).difference(["pid","values","timestamps"]))
-        return TSeries(self.qlut.timestamps, entries, tagnames=tagnames)
+        return TSeries(self.qlut.timestamps, entries, tagnames=tagnames, name="_".join([name,constituent]))
 
     def process_constituent(self, constituent, entry_loc , load=False):
-        ts = self._create_tseries(constituent, entry_loc, load)
+        ts = self._create_tseries(constituent, entry_loc, load, "ts" + self.name.strip("pproc"))
         self.__setattr__(constituent,ts)
         return ts
 

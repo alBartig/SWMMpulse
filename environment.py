@@ -52,7 +52,7 @@ class Group:
         [setattr(self, k, v) for k, v in kwargs.items()]
 
 
-    def plist(self, origin, population, nowd=None):
+    def plist(self, origin, population, nowd=None, startid=0):
         """
         Creates packet list
         Args:
@@ -78,7 +78,7 @@ class Group:
         weighted_population = get_weighted_population(population, self.weight)
         npoops = int(round(weighted_population*self.dailypoops))
         occs = random.choices(index, weights=pattern, k=npoops)
-        for i, occ in enumerate(occs):
+        for i, occ in enumerate(occs, start=startid):
             h,r = divmod(occ,360)
             m,s = divmod(r,6)
             nowh = timedelta(hours=h,minutes=m,seconds=10*s)
@@ -120,8 +120,8 @@ def test_fractions():
             n = len([p for p in plist if p.classification == 'Infected'])
             temp[0].append(n)
             temp[1].append(len(plist))
-        print(f"{fraction}: Infected: min: {min(temp[0])}, max: {max(temp[0])}, Overall: {np.mean(temp[1])}")
-    print(plist)
+        print(f"{fraction}: Packets: min: {min(temp[1])}, max: {max(temp[1])}, Overall: {np.mean(temp[1])}")
+    #print(plist)
 
 def random_correlation():
     from collections import Counter
@@ -151,7 +151,7 @@ def random_pattern():
     print("finished")
 
 def main():
-    random_pattern()
+    test_fractions()
 
 if __name__ == '__main__':
     main()

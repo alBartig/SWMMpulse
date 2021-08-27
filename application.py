@@ -6,15 +6,17 @@ from environment import Environment
 import os
 from pconstants import Loading
 import matplotlib.pyplot as plt
+from tqdm import tqdm
 from helpers import series_to_dfmi
 
 def prepare_environment():
     lpath = '/mnt/c/Users/albert/Documents/SWMMpulse/HS_calib_120_simp.out'
     #lpath = 'C:/Users/alber/Documents/swmm/swmmpulse/HS_calib_120_simp.out'
     qlut = QFrame(lpath)
-    gpath = '/mnt/c/Users/albert/documents/SWMMpulse/HS_calib_120_simp/'
+    gpath = '/mnt/c/Users/albert/documents/SWMMpulse/HS_calib_120_simp.inp'
+    pop_data = '/mnt/c/Users/albert/documents/SWMMpulse/HS_calib_120_simp/Junctions.dbf'
     #gpath = 'C:/Users/alber/documents/swmm/swmmpulse/HS_calib_120_simp/'
-    graph = ntwk.from_directory(gpath)
+    graph = ntwk.from_swmm(gpath,pop_data)
     return graph,qlut
 
 def generate_rts(graph, qlut):
@@ -119,7 +121,7 @@ def test_cov(graph, qlut, evalnode):
 def bulk_simulation():
     # Settings
     path = f'/mnt/c/Users/albert/documents/SWMMpulse/'
-    n = 1
+    n = 10
     evalnode = 'MH327-088-1'
     env = Environment()
     graph, qlut = prepare_environment()
@@ -127,6 +129,7 @@ def bulk_simulation():
 
     # Simulations
     for i in range(n):
+        print(f"SCENARIO {i}\n")
         fraction = 0.1
         env.groups[0].weight = (1 - fraction)
         env.groups[1].weight = fraction

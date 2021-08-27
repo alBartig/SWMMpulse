@@ -517,13 +517,14 @@ class TSeries:
                 "M": 60,
                 "H": 3600}
 
-    def __init__(self, timestamps, entries=None, freq="10S", tagnames=[]):
+    def __init__(self, timestamps, entries=None, freq="10S", tagnames=[], name=None):
         self.entrycount = 0
         self.date, timestamps = self._reg_datetimeindex(timestamps, freq)
         self.freq = int(freq[:-1] * self.freqmult[freq[-1:]])
         self.dfseries = pd.DataFrame(index=timestamps)
         self.dftags = pd.DataFrame(columns=tagnames)
         self.timestamps = list(timestamps)
+        self.name = name
 
         if entries:
             self._append_entries(entries)
@@ -533,7 +534,7 @@ class TSeries:
 
     def to_parquet(self, path):
         self.dfseries.columns = [str(c) for c in self.dfseries.columns]
-        self.dfseries.to_parquet(os.path.join(path, (self.name + "_series.parquet")))
+        self.dfseries.reset_index().to_parquet(os.path.join(path, (self.name + "_vals.parquet")))
         self.dftags.to_parquet(os.path.join(path, (self.name + "_tags.parquet")))
 
     @staticmethod
@@ -603,7 +604,7 @@ class TSeries:
             self.dftags = self.dftags.append(pd.DataFrame.from_dict(temptags, orient="index", columns=tagnames))
         except:
             pass
-        print("Entries unpacked")
+        #print("Entries unpacked")
 
     def _append_df(self, df):
         for column in df:
@@ -688,18 +689,19 @@ class QSeries:
         if v != 0.0:
             return v, dt.timedelta(seconds=0)
         else:
-            s = s[s > 0]
-            try:
-                temp = s[time:]
-                v, t = temp[0], temp.index[0]
-                return v, t-time
-            except:
-                try:
-                    temp = s[:time]
-                    v, t = temp[0], temp.index[0]
-                    return v, dt.timedelta(days=1) - (time-t)
-                except:
-                    return None,None
+            return 0.1, dt.timedelta(seconds=0)
+            # s = s[s > 0]
+            # try:
+            #     temp = s[time:]
+            #     v, t = temp[0], temp.index[0]
+            #     return v, t-time
+            # except:
+            #     try:
+            #         temp = s[:time]
+            #         v, t = temp[0], temp.index[0]
+            #         return v, dt.timedelta(days=1) - (time-t)
+            #     except:
+            #         return None,None
 
     def meter_to_seconds(self, time, distance):
         velocity, delay = self.lookup_v(time)

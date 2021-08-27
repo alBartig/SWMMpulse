@@ -240,7 +240,7 @@ class PObject:
         flow_velocity = round(qlookup.lookup_v(link, self.tm)[0],1)
         dx = flow_velocity * Discretization.TIMESTEPLENGTH.total_seconds()
         #creating linear spatial array with distance to load peak, making sure x=0.0 is contained in d
-        borders = (2*np.floor(dispersion_spread/dx)-1)*dx
+        borders = (2*np.ceil(dispersion_spread/dx)-1)*dx
         dx = dx / Discretization.REFINE
         d = np.arange(-borders,borders,dx)
         #check whether pulse load is spread-out over more than one dx / catching div by 0
@@ -272,7 +272,7 @@ class PObject:
             print(f"Expected load: {reduced_load}\n"
                   f"Calculated load: {totalm}\n"
                   f"Continuity Error: {deviation*100:.2f} %\n"
-                  f"Allowerd Error: {Loading.MAX_CONTINUITY_ERROR*100:.2} %")
+                  f"Allowed Error: {Loading.MAX_CONTINUITY_ERROR*100:.2} %")
             raise MassbalanceError
         return values
 
