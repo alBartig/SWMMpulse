@@ -585,7 +585,8 @@ class TSeries:
         temptags = {}
         tagnames = self.dftags.columns
 
-        for entry in tqdm(entries, desc="Appending entries to Postprocessing..."):
+        for entry in entries:
+        #for entry in tqdm(entries, desc="Appending entries to Postprocessing..."):
             entryid = entry["pid"]
 
             unpacked = entry["values"]

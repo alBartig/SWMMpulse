@@ -26,7 +26,7 @@ class Constituent:
 
 class DefaultConstituents:
     FECAL = Constituent(Loading.FECAL, 200, Units.GRAM)
-    COV = Constituent(Loading.COV, 10000, Units.COUNT)
+    COV = Constituent(Loading.COV, 10000, Units.COUNT, degradation_coefficient=0.114)
     PEP = Constituent(Loading.PEP, 10000, Units.COUNT)
 
 class DefaultPatterns:

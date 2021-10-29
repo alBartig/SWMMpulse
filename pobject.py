@@ -66,11 +66,11 @@ class PObject:
 
     def _factor_degradation(self, spec_degr):
         '''
-        :param spec_degr: degradation coefficient: 1/s
+        :param spec_degr: degradation coefficient: 1/d
         :return: multiplier to reduce max load
         '''
         if self.age != None:
-            return np.e**(-spec_degr*self.age)
+            return np.e**(-spec_degr*self.age/86400)
         else:
             print('packet does not have age information')
 

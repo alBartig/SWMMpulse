@@ -1,4 +1,4 @@
-import geopandas
+#import geopandas
 from network_lib import DirectedTree as ntwk, GraphConstants as gc
 from timeseries import QSeries, TSeries, TDict
 import create_loadings
@@ -86,8 +86,12 @@ class PRouter:
         route_table = _Route_table(nodes, rtname)
         startid = 0
         #print('Creating packets and routing Nodes')
-        for node in tqdm(nodes, desc="Routing packets..."):
-            pop = self.graph.get_nodevalue(node,'population')
+        for node in nodes:
+        #for node in tqdm(nodes, desc="Routing packets..."):
+            try:
+                pop = int(self.graph.get_nodevalue(node,'POP'))
+            except:
+                pop = 0
             plist = self.node_plist(node,pop,startid)
             startid += len(plist)
             ppath = self.node_path(node)
@@ -175,7 +179,8 @@ class _Route_table:
     def to_parquet(self, fpath):
         #import time
         #extract packets and write to table
-        packets = [r[0].to_list() for r in tqdm(self.content, desc="Saving packets...")]
+        packets = [r[0].to_list() for r in self.content]
+        #packets = [r[0].to_list() for r in tqdm(self.content, desc="Saving packets...")]
         dfp = pd.DataFrame(packets, columns=self.content[0][0].tags)
         dfp.to_parquet(os.path.join(fpath,self.name+"_packets.parquet"), compression="brotli")
 
@@ -185,12 +190,17 @@ class _Route_table:
         for row in self.content:
             _content.append([row[0],*row[1:]])
         #print(f"Copied rt-contents: {time.time()-start:.3f} s")
-        for row in tqdm(_content, desc="Saving routetable..."):
+        for row in _content:
+        #for row in tqdm(_content, desc="Saving routetable..."):
             row[0] = row[0].pid
         dfrt = pd.DataFrame(_content, columns=self.columns).set_index("packets").astype("str")
         dfrt.to_parquet(os.path.join(fpath,self.name+"_routetable.parquet"), compression="brotli")
         #print('RTable Object saved')
         return True
+
+    def from_parquet(self, fpath):
+        dfrt = pd.read_parquet(path)
+        dfp =
 
     @staticmethod
     def from_file(fpath):
@@ -234,7 +244,8 @@ class Postprocessing:
         if load is False:
             #print('processing packets\n')
             entries = []
-            for packet in tqdm(self.packets, f"Calculating loads from packets for {constituent}..."):
+            for packet in self.packets:
+            #for packet in tqdm(self.packets, f"Calculating loads from packets for {constituent}..."):
                 if packet.__contains__(constituent):
                     entries.append(packet.get_entry(constituent, self.link, self.qlut))
             # with open(entry_loc, 'wb') as fobj:
