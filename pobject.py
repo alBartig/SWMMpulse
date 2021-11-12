@@ -276,6 +276,64 @@ class PObject:
             raise MassbalanceError
         return values
 
+    def calc_composite_load(self, constituent, link, qlookup):
+        """
+        Calculates the load distribution of given constituent and returns loads per timestep and timesteps
+        Args:
+            constituent (str): name of constituent, must be contained in Packet.contents
+        Returns:
+            (tuple): Tuple of lists (loads,timesteps)
+        """
+        reduced_load = self.max_loads[constituent]
+        fractions = Loading.FRACTIONS[Loading.COV]
+
+        series = []
+        for fraction in fractions:
+            part, dispersion_rate, skewedness = fraction
+            fraction_load = reduced_load * part
+
+            #calculate dispersion spread
+            dispersion_spread = self._calculate_dispersion_spread(dispersion_rate)
+            #looking up flow velocity and calculate spatial resolution corresponding to timestep and flowvelocity
+            flow_velocity = round(qlookup.lookup_v(link, self.tm)[0],1)
+            dx = flow_velocity * Discretization.TIMESTEPLENGTH.total_seconds()
+            #creating linear spatial array with distance to load peak, making sure x=0.0 is contained in d
+            borders = (2*np.ceil(dispersion_spread/dx)-1)*dx
+            dx = dx / Discretization.REFINE
+            x = np.arange(-borders,borders,dx)
+        #check whether pulse load is spread-out over more than one dx / catching div by 0
+        if len(d) == 0:
+            spatial_loading_aggregated = [reduced_load]
+            d = [0]
+        else:
+            #calculate peak loading [unit/m]
+            peak_loading = self._peak_triangular(dispersion_spread) * reduced_load
+            #interpolate loading for each section
+            spatial_linear_loading = [max(0, self._interpolate(abs(x), dispersion_spread, 0, y1=peak_loading)) for x in d]
+            #integrate loading for each section and aggregate to timesteps
+            spatial_loading_fine = [c*dx for c in spatial_linear_loading]
+            spatial_loading_aggregated = [sum(spatial_loading_fine[i:(i+Discretization.REFINE)]) for i in range(0,len(spatial_loading_fine),Discretization.REFINE)]
+        #convert spatial array to temporal array
+        ref_time = qlookup.find_seconds(self.tm)
+        values = np.zeros(len(qlookup.timestamps))
+        mid = qlookup.timestamps.index(qlookup.norm_time(ref_time))
+        indexer = [round(di/(dx*Discretization.REFINE))+mid for di in d[::Discretization.REFINE]]
+        try:
+            values[indexer] = spatial_loading_aggregated
+        except:
+            pass
+        #t = [ref_time + datetime.timedelta(seconds=round(x/flow_velocity)) for x in d[::Discretization.REFINE]]
+        #check mass-balance
+        totalm = sum(spatial_loading_aggregated)
+        deviation = abs(totalm-reduced_load)/reduced_load
+        if not deviation <= Loading.MAX_CONTINUITY_ERROR:
+            print(f"Expected load: {reduced_load}\n"
+                  f"Calculated load: {totalm}\n"
+                  f"Continuity Error: {deviation*100:.2f} %\n"
+                  f"Allowed Error: {Loading.MAX_CONTINUITY_ERROR*100:.2} %")
+            raise MassbalanceError
+        return values
+
     def unpack_loading(self, values, timestamps, qlookup):
         """
         unpacks values to full day series. Pads all new values with 0

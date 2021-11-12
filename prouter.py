@@ -200,7 +200,7 @@ class _Route_table:
 
     def from_parquet(self, fpath):
         dfrt = pd.read_parquet(path)
-        dfp =
+        #dfp =
 
     @staticmethod
     def from_file(fpath):

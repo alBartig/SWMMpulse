@@ -18,3 +18,4 @@ class Loading:
     COV = 'Cov-RNA'
     PEP = 'Pepper-virus'
     MAX_CONTINUITY_ERROR = 0.02
+    FRACTIONS = {COV : [[0.5, 0.1, 1],[0.5, 0.1, 8]]}

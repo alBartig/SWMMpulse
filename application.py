@@ -10,14 +10,16 @@ from multiprocessing import Pool
 from tqdm import tqdm
 from helpers import series_to_dfmi
 
-def prepare_environment():
+def prepare_environment(lpath='C:/Users/albert/Documents/SWMMpulse/HS_calib_120_simp.out',\
+                        gpath = 'C:/Users/albert/Documents/SWMMpulse/HS_calib_120_simp.inp',
+                        pop_data = 'C:/Users/albert/Documents/SWMMpulse/HS_calib_120_simp/Junctions.dbf'):
     #lpath = '/mnt/c/Users/albert/Documents/SWMMpulse/HS_calib_120_simp.out'
-    lpath = 'C:/Users/albert/Documents/SWMMpulse/HS_calib_120_simp.out'
+    #lpath = 'C:/Users/albert/Documents/SWMMpulse/HS_calib_120_simp.out'
     qlut = QFrame(lpath)
     #gpath = '/mnt/c/Users/albert/documents/SWMMpulse/HS_calib_120_simp.inp'
     #pop_data = '/mnt/c/Users/albert/documents/SWMMpulse/HS_calib_120_simp/Junctions.dbf'
-    gpath = 'C:/Users/albert/Documents/SWMMpulse/HS_calib_120_simp.inp'
-    pop_data = 'C:/Users/albert/Documents/SWMMpulse/HS_calib_120_simp/Junctions.dbf'
+    #gpath = 'C:/Users/albert/Documents/SWMMpulse/HS_calib_120_simp.inp'
+    #pop_data = 'C:/Users/albert/Documents/SWMMpulse/HS_calib_120_simp/Junctions.dbf'
     graph = ntwk.from_swmm(gpath)
     graph.nodedata_from_dbf(pop_data, cols="POP")
     return graph,qlut
