@@ -6,6 +6,7 @@ from tqdm import tqdm
 import os
 from pconstants import Loading
 
+
 # class TStamps:
 #     def __init__(self, timestamps, freq):
 #         timestamps = pd.to_datetime(timestamps)
@@ -84,6 +85,8 @@ class TData:
         """
         """
         pass
+
+
 #
 # class TSeries:
 #     def __init__(self, timestamps, entries, freq="10S", expand=True, eid=None, **kwargs):
@@ -121,7 +124,7 @@ class TData:
 #
 class TDict:
     def __init__(self, timestamps):
-        #time_values = pd.to_datetime(time_values)
+        # time_values = pd.to_datetime(time_values)
         timestamps = pd.to_datetime(timestamps)
         self.date = timestamps[0].date()
         self.timestamps, self.sortby = self._normalize(timestamps)
@@ -133,14 +136,15 @@ class TDict:
             if t.date() == self.date:
                 temp.append(t)
             else:
-                t = datetime.datetime.combine(self.date,t.time())
+                t = datetime.datetime.combine(self.date, t.time())
                 if not temp.__contains__(t):
                     temp.append(t)
                 else:
-                    print("Series spans more than 24 h! Duplicate time-values found.\nPlease remove duplicate time-values regardless of date")
+                    print(
+                        "Series spans more than 24 h! Duplicate time-values found.\nPlease remove duplicate time-values regardless of date")
                     raise TimevalueError
         sortby = np.argsort(temp)
-        return ([temp[i] for i in sortby],sortby)
+        return ([temp[i] for i in sortby], sortby)
 
     @classmethod
     def from_bounds(cls, start, end, step):
@@ -152,7 +156,7 @@ class TDict:
             step (datetime.timedelta):
             **kwargs:
         """
-        count,rest = divmod((end - start),step)
+        count, rest = divmod((end - start), step)
         if rest.total_seconds() != 0:
             raise StepsizeError
         timestamps = np.array([start + i * step for i in range(count)])
@@ -170,7 +174,7 @@ class TDict:
     def count(self):
         return len(self.timestamps)
 
-    def register_timeseries(self,series):
+    def register_timeseries(self, series):
         timedict = {}
         for step in series:
             h = step.hour
@@ -182,11 +186,11 @@ class TDict:
                 else:
                     timedict[h][m] = [s]
             else:
-                timedict[h] = {m:[s]}
+                timedict[h] = {m: [s]}
         return timedict
 
-    def _get_secs(self,time):
-        return self.lookup.get(time.hour,{}).get(time.minute,[])
+    def _get_secs(self, time):
+        return self.lookup.get(time.hour, {}).get(time.minute, [])
 
     def _get_secs_padded(self, time):
         """
@@ -198,18 +202,19 @@ class TDict:
             list: seconds in minute and if available following minute first value
         """
         secs1 = self._get_secs(time)
-        time2 = time+datetime.timedelta(seconds=60)
-        secs2 = [s+60 for s in self._get_secs(time2)[:1]]
-        return  secs1 + secs2
+        time2 = time + datetime.timedelta(seconds=60)
+        secs2 = [s + 60 for s in self._get_secs(time2)[:1]]
+        return secs1 + secs2
 
     def _get_time_from_sec(self, time, secs):
-        return datetime.datetime.combine(self.date, datetime.time(time.hour,time.minute)) + datetime.timedelta(seconds=secs)
+        return datetime.datetime.combine(self.date, datetime.time(time.hour, time.minute)) + datetime.timedelta(
+            seconds=secs)
 
     def _get_time_from_min(self, time, min, first=True):
-        time = datetime.time(time.hour,min)
-        secs = abs(first-1)*max(self._get_secs(time)) + first*min(self._get_secs(time))
+        time = datetime.time(time.hour, min)
+        secs = abs(first - 1) * max(self._get_secs(time)) + first * min(self._get_secs(time))
         time.replace(second=secs)
-        return datetime.datetime.combine(self.date,time)
+        return datetime.datetime.combine(self.date, time)
 
     def find_seconds(self, time):
         h = time.hour
@@ -219,17 +224,17 @@ class TDict:
         if minutes_in_hour != None:
             seconds_in_minute = self._get_secs_padded(time)
             if seconds_in_minute != None:
-                s2 = min(seconds_in_minute, key = lambda x: abs(x-s))
+                s2 = min(seconds_in_minute, key=lambda x: abs(x - s))
                 time = self._get_time_from_sec(time, s2)
             else:
                 minutes = minutes_in_hour.keys()
-                m2 = min(minutes, key = lambda x: abs(x-m))
+                m2 = min(minutes, key=lambda x: abs(x - m))
                 if m2 > m:
                     time = self._get_time_from_min(time, m2, first=False)
-                    #time = datetime.time(hour=h,minute=m2,second=max(seconds_in_minute))
+                    # time = datetime.time(hour=h,minute=m2,second=max(seconds_in_minute))
                 else:
                     time = self._get_time_from_min(time, m2, first=True)
-                    #time = datetime.time(hour=h,minute=m2,second=min(seconds_in_minute))
+                    # time = datetime.time(hour=h,minute=m2,second=min(seconds_in_minute))
         return time
 
     def find_smaller(self, time):
@@ -243,25 +248,24 @@ class TDict:
                 seconds = [second for second in seconds_in_minute if second < s]
                 if len(seconds) > 1:
                     s2 = seconds[-1]
-                    time =  datetime.time(hour=h,minute=m,second=s2)
+                    time = datetime.time(hour=h, minute=m, second=s2)
                 else:
-                    time = time - datetime.timedelta(seconds=s+1)
+                    time = time - datetime.timedelta(seconds=s + 1)
                     time = self.find_smaller(time)
             else:
-                time = time - datetime.timedelta(seconds=s+1)
+                time = time - datetime.timedelta(seconds=s + 1)
                 time = self.find_smaller(time)
         return datetime.datetime.combine(self.date, time)
 
     def find_larger_dt(self, time):
         larger = [ts for ts in self.timestamps if ts >= time]
         if larger == []:
-            return self.timestamps[0],datetime.timedelta(days=1)
+            return self.timestamps[0], datetime.timedelta(days=1)
         else:
             try:
-                return larger[0],datetime.timedelta(days=0)
+                return larger[0], datetime.timedelta(days=0)
             except:
                 print(f'larger: {larger}, time: {time}')
-
 
     def find_smaller_dt(self, time):
         querydate = time.date()
@@ -269,15 +273,15 @@ class TDict:
         compare_dt = datetime.datetime.combine(self.date, querytime)
         delay = datetime.timedelta(days=(querydate - self.date).days)
         smaller = [ts for ts in self.timestamps if ts <= compare_dt]
-        return smaller[-1],delay
+        return smaller[-1], delay
 
     def find_closest_dt(self, time):
-        smaller,shift_front = self.find_smaller_dt(time)
+        smaller, shift_front = self.find_smaller_dt(time)
         ismaller = self.get_index(smaller)
-        if ismaller < len(self.timestamps)-1:
+        if ismaller < len(self.timestamps) - 1:
             ilarger = ismaller + 1
             larger = self.timestamps[ilarger]
-            if larger-time < time-smaller:
+            if larger - time < time - smaller:
                 return larger
             else:
                 return smaller
@@ -292,15 +296,15 @@ class TDict:
         if minutes_in_hour != None:
             seconds_in_minute = minutes_in_hour.get(m)
             if seconds_in_minute != None:
-                seconds = [second for second in seconds_in_minute if second<s]
+                seconds = [second for second in seconds_in_minute if second < s]
                 if len(seconds) > 1:
                     s2 = seconds[0]
-                    time = dt.time(hour=h,minute=m,second=s2)
+                    time = dt.time(hour=h, minute=m, second=s2)
                 else:
-                    time = time + dt.timedelta(seconds=60-s)
+                    time = time + dt.timedelta(seconds=60 - s)
                     time = self.find_larger(time)
             else:
-                time = time + dt.timedelta(seconds=60-s)
+                time = time + dt.timedelta(seconds=60 - s)
                 time = self.find_larger(time)
         return datetime.datetime.combine(self.date, time)
 
@@ -345,6 +349,8 @@ class TDict:
             for row in zip(*list(content.values())):
                 writer.writerow(row)
         print(f'csv-file saved to "{opath}"')
+
+
 #
 # class TSeries(TDict):
 #     """
@@ -586,7 +592,7 @@ class TSeries:
         tagnames = self.dftags.columns
 
         for entry in entries:
-        #for entry in tqdm(entries, desc="Appending entries to Postprocessing..."):
+            # for entry in tqdm(entries, desc="Appending entries to Postprocessing..."):
             entryid = entry["pid"]
 
             unpacked = entry["values"]
@@ -605,7 +611,7 @@ class TSeries:
             self.dftags = self.dftags.append(pd.DataFrame.from_dict(temptags, orient="index", columns=tagnames))
         except:
             pass
-        #print("Entries unpacked")
+        # print("Entries unpacked")
 
     def _append_df(self, df):
         for column in df:
@@ -649,7 +655,11 @@ class QSeries:
         self.lookup = inp.reindex(pd.DatetimeIndex(self.timestamps)).interpolate(limit_direction="both")
 
     def norm_time(self, time):
-        return dt.datetime.combine(self.date, time.time())
+        s = time.time().second
+        return dt.datetime.combine(self.date, time.time().replace(microsecond=0, second=s-s%10))
+
+    def norm_array(self, tarray):
+        return [self.norm_time(t) for t in tarray]
 
     def find_seconds(self, time):
         freq = self.freq
@@ -712,6 +722,7 @@ class QSeries:
     def get_subset(self, link):
         return QSeries(self.lookup[link])
 
+
 class QFrame(QSeries):
     def __init__(self, o_path, freq="10S"):
         inp = self.from_out_file(o_path)
@@ -721,13 +732,18 @@ class QFrame(QSeries):
         from swmm_api import read_out_file
         with read_out_file(out_file) as out:
             df = out.to_frame()
-            df = df.xs(('link', 'Flow_velocity'), axis=1, level=[0, 2])
-            #timestamps = df.index.values
-            #entries = [{'values': df[col].values, 'link': col} for col in df]
+            # df = df.xs(('link', 'Flow_velocity'), axis=1, level=[0, 2])
+            df = df.loc[:, ("link", slice(None), ["Flow_rate", "Flow_velocity"])].droplevel(0, axis=1)
+            # timestamps = df.index.values
+            # entries = [{'values': df[col].values, 'link': col} for col in df]
             return df
 
     def lookup_v(self, link, time):
-        s = self.lookup[link]
+        s = self.lookup[(link, "Flow_velocity")]
+        return self._lookup_v(s, time)
+
+    def lookup_q(self, link, time):
+        s = self.lookup[(link, "Flow_rate")]
         return self._lookup_v(s, time)
 
     def meter_to_seconds(self, link, time, distance):
@@ -735,12 +751,14 @@ class QFrame(QSeries):
         s = distance / velocity
         return s
 
+
 def test_qseries():
     print('Test QSeries')
-    #of_path = 'C:/Users/alber/Documents/swmm/swmmpulse/HS_calib_120_simp.out'
+    # of_path = 'C:/Users/alber/Documents/swmm/swmmpulse/HS_calib_120_simp.out'
     of_path = '/mnt/c/Users/albert/Documents/SWMMpulse/HS_calib_120_simp.out'
     qlut = QFrame(of_path)
     print('Test QSeries finished')
+
 
 def test_diffs():
     start, end = qlut.timestamps[0], qlut.timestamps[0] + datetime.timedelta(days=1)
@@ -763,16 +781,19 @@ def test_diffs():
           f"Max: {np.max(diffs)} s")
     print("Finished Main")
 
+
 def load_qlut():
-    lpath = '/mnt/c/Users/albert/Documents/SWMMpulse/HS_calib_120_simp.out'
+    lpath = 'C:/Users/albert/Documents/SWMMpulse/HS_calib_120_simp.out'
     qlut = QFrame(lpath)
     return qlut
 
+
 def load_graph():
     from network_lib import DirectedTree as ntwk, GraphConstants as gc
-    gpath = '/mnt/c/Users/albert/documents/SWMMpulse/HS_calib_120_simp/'
-    graph = ntwk.from_directory(gpath)
+    gpath = 'C:/Users/albert/Documents/SWMMpulse/HS_calib_120_simp.inp'
+    graph = ntwk.from_swmm(gpath)
     return graph
+
 
 def test_pproc(graph, qlut, evalnode):
     from prouter import _Route_table, Postprocessing
@@ -780,20 +801,21 @@ def test_pproc(graph, qlut, evalnode):
     from environment import Environment
 
     fpath = f'/mnt/c/Users/albert/documents/SWMMpulse/'
-    #fpath = f'C:/Users/alber/documents/swmm/swmmpulse/'
-    routetable = _Route_table.from_file(os.path.join(fpath,'route_tables','rtb_testdrive.pickle'))
-    location = [evalnode,graph.get_outletlinks(evalnode)[0]]
+    # fpath = f'C:/Users/alber/documents/swmm/swmmpulse/'
+    routetable = _Route_table.from_file(os.path.join(fpath, 'route_tables', 'rtb_testdrive.pickle'))
+    location = [evalnode, graph.get_outletlinks(evalnode)[0]]
     rt_slice = routetable._extract_node(location, Environment().dispersion)
 
     pproc = Postprocessing.from_rtable(routetable, evalnode, qlut, graph)
-    #pproc = Postprocessing.from_rtable(routetable, evalnode, qlut.get_subset(graph.get_outletlinks(evalnode)[0]), graph)
+    # pproc = Postprocessing.from_rtable(routetable, evalnode, qlut.get_subset(graph.get_outletlinks(evalnode)[0]), graph)
     eval_constituent = Loading.FECAL
     entry_loc = os.path.join(fpath, 'entries', "entries_testdrive.pickle")
     pproc.process_constituent(eval_constituent, entry_loc, load=False)
-    #pproc.save(os.path.join(fpath, 'timeseries', 'timeseries_testdrive.pickle'))
-    #pproc = Postprocessing.from_file(os.path.join(fpath, 'timeseries', 'timeseries_testdrive.pickle'))
+    # pproc.save(os.path.join(fpath, 'timeseries', 'timeseries_testdrive.pickle'))
+    # pproc = Postprocessing.from_file(os.path.join(fpath, 'timeseries', 'timeseries_testdrive.pickle'))
     pproc.Fecal_Matter.timeseries(os.path.join(fpath, 'timeseries', 'timeseries_testdrive.csv'), True)
     print("Function finished")
+
 
 def main():
     from application import testdrive
@@ -801,6 +823,8 @@ def main():
     evalnode = 'MH327-088-1'
     graph = load_graph()
     qlut = load_qlut()
+
+    qlut.lookup_v('CN4414305258.1', dt.datetime.now())
 
     test_pproc(graph, qlut, evalnode)
 

@@ -15,12 +15,15 @@ def prepare_environment(lpath='C:/Users/albert/Documents/SWMMpulse/HS_calib_120_
                         pop_data = 'C:/Users/albert/Documents/SWMMpulse/HS_calib_120_simp/Junctions.dbf'):
     #lpath = '/mnt/c/Users/albert/Documents/SWMMpulse/HS_calib_120_simp.out'
     #lpath = 'C:/Users/albert/Documents/SWMMpulse/HS_calib_120_simp.out'
+    print("...loading hydraulic lookup")
     qlut = QFrame(lpath)
     #gpath = '/mnt/c/Users/albert/documents/SWMMpulse/HS_calib_120_simp.inp'
     #pop_data = '/mnt/c/Users/albert/documents/SWMMpulse/HS_calib_120_simp/Junctions.dbf'
     #gpath = 'C:/Users/albert/Documents/SWMMpulse/HS_calib_120_simp.inp'
     #pop_data = 'C:/Users/albert/Documents/SWMMpulse/HS_calib_120_simp/Junctions.dbf'
+    print("...loading graph model")
     graph = ntwk.from_swmm(gpath)
+    print("...loading population data")
     graph.nodedata_from_dbf(pop_data, cols="POP")
     return graph,qlut
 
@@ -123,7 +126,7 @@ def test_cov(graph, qlut, evalnode):
     pproc.process_constituent(Loading.COV, entry_loc=os.path.join(path,'entries/rt_f00003_00_Cov_RNA.pickle'), load=False)
     print('test_cov finished')
 
-def simulation(sim_dict):
+def simulation(sim_dict, debug=False):
     i = sim_dict["i"]
     graph = sim_dict["graph"]
     qlut =sim_dict["qlut"]
@@ -139,18 +142,34 @@ def simulation(sim_dict):
     fname = f"s1_variation_{str(i).zfill(4)}"
 
     # Create routetable
+    if debug:
+        print("...creating Packetrouter")
+
     router = PRouter(graph=graph, qlookup=qlut)
     router.env = env
+
+    if debug:
+        print("...creating Routetable")
+
     routetable = router.route(fname)
     routetable.to_parquet(os.path.join(path, "route_tables"))
+
+    if debug:
+        print("...creating Postprocessing from Routetable")
 
     # Slice routetable
     pproc = Postprocessing.from_rtable(routetable, evalnode, qlut, graph)
 
+    if debug:
+        print("...calculate Timeseries for constituents")
+
     # Create timeseries for each constituent
-    for constituent in constituents:
+    for constituent in tqdm(constituents):
         pproc.process_constituent(constituent, os.path.join(path, "entries"))
         pproc.__getattribute__(constituent).to_parquet(os.path.join(path, "entries"))
+
+    print("check timeseries!")
+    print("simulation finished")
 
 def mp_simulation():
     # Settings
@@ -170,6 +189,18 @@ def mp_simulation():
     pool.close()
     pool.join()
     print("Multiprocessing finished")
+
+def test_sim():
+    path = f'C:/Users/albert/documents/SWMMpulse/'
+    evalnode = 'MH327-088-1'
+    print("...building environment")
+    env = Environment()
+    graph, qlut = prepare_environment()
+    constituents = [Loading.COV, Loading.FECAL]
+    print("...simulate")
+    simulation({"i":99999, "graph":graph, "qlut":qlut, "constituents":constituents, "evalnode":evalnode, "path":path,\
+             "env":env}, debug=True)
+    print("process ended")
 
 def post_calculate_fecal_ts():
     path = f'C:/Users/albert/documents/SWMMpulse/'
@@ -240,6 +271,7 @@ def bulk_simulation():
             pproc.__getattribute__(constituent).to_parquet(os.path.join(path, "entries"))
 
 if __name__ == "__main__":
+    #test_sim()
     mp_simulation()
 
     print('finished')

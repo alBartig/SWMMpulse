@@ -17,5 +17,10 @@ class Loading:
     FECAL = 'Fecal-Matter'
     COV = 'Cov-RNA'
     PEP = 'Pepper-virus'
+    FRACTION = "Load-fraction"
+    SKEWEDNESS = "skewedness"
     MAX_CONTINUITY_ERROR = 0.02
-    FRACTIONS = {COV : [[0.5, 0.1, 1],[0.5, 0.1, 8]]}
+    FRACTIONS = {COV : [{FRACTION: 0.5, DISPERSION: 0.1, SKEWEDNESS: 1},
+                        {FRACTION:0.5, DISPERSION:0.1, SKEWEDNESS:8}],
+                 FECAL : [{FRACTION:0.5, DISPERSION:0.1, SKEWEDNESS:8},
+                          {FRACTION:0.5, DISPERSION:0.1, SKEWEDNESS:8}]}
