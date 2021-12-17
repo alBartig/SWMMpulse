@@ -349,12 +349,15 @@ class PObject:
         ccomb = ycomb * flow_velocity / flow_rate
 
         # convert spatial array to temporal array
-        t = ref_time + datetime.timedelta(
-            seconds=Discretization.TIMESTEPLENGTH.total_seconds()) * -xcomb / flow_velocity
+        t = ref_time + np.array([datetime.timedelta(seconds=-_ / flow_velocity) for _ in xcomb])
+        dr = pd.date_range(t[-1], t[0], freq=f"{Discretization.TIMESTEPLENGTH.total_seconds():.0f}S")
         t = qlookup.norm_array(t)
+        dr = qlookup.norm_array(dr)
+
+        s = pd.Series(ccomb, index=t, name=self.pid).reindex(dr).interpolate()
 
         # check mass-balance
-        totalm = sum(ccomb) * Discretization.TIMESTEPLENGTH.total_seconds() * flow_rate
+        totalm = sum(s) * Discretization.TIMESTEPLENGTH.total_seconds() * flow_rate
         deviation = abs(totalm - reduced_load) / reduced_load
         if not deviation <= Loading.MAX_CONTINUITY_ERROR:
             print(f"Expected load: {reduced_load}\n"
@@ -362,7 +365,7 @@ class PObject:
                   f"Continuity Error: {deviation * 100:.2f} %\n"
                   f"Allowed Error: {Loading.MAX_CONTINUITY_ERROR * 100:.2} %")
             raise MassbalanceError
-        return pd.Series(ccomb, index=t, name=self.pid)
+        return s
 
     def unpack_loading(self, values, timestamps, qlookup):
         """

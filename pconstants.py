@@ -20,7 +20,7 @@ class Loading:
     FRACTION = "Load-fraction"
     SKEWEDNESS = "skewedness"
     MAX_CONTINUITY_ERROR = 0.02
-    FRACTIONS = {COV : [{FRACTION: 0.5, DISPERSION: 0.1, SKEWEDNESS: 1},
-                        {FRACTION:0.5, DISPERSION:0.1, SKEWEDNESS:8}],
-                 FECAL : [{FRACTION:0.5, DISPERSION:0.1, SKEWEDNESS:8},
-                          {FRACTION:0.5, DISPERSION:0.1, SKEWEDNESS:8}]}
+    FRACTIONS = {COV : [{FRACTION: 0.9, DISPERSION: 0.16, SKEWEDNESS: 1},
+                        {FRACTION:0.1, DISPERSION:0.16, SKEWEDNESS:20}],
+                 FECAL : [{FRACTION:0.9, DISPERSION:0.16, SKEWEDNESS:1},
+                          {FRACTION:0.1, DISPERSION:0.16, SKEWEDNESS:20}]}

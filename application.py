@@ -9,21 +9,23 @@ import matplotlib.pyplot as plt
 from multiprocessing import Pool
 from tqdm import tqdm
 from helpers import series_to_dfmi
+import logging
 
 def prepare_environment(lpath='C:/Users/albert/Documents/SWMMpulse/HS_calib_120_simp.out',\
                         gpath = 'C:/Users/albert/Documents/SWMMpulse/HS_calib_120_simp.inp',
-                        pop_data = 'C:/Users/albert/Documents/SWMMpulse/HS_calib_120_simp/Junctions.dbf'):
+                        pop_data = 'C:/Users/albert/Documents/SWMMpulse/HS_calib_120_simp/Junctions.dbf',
+                        logger=logging.getLogger("root")):
     #lpath = '/mnt/c/Users/albert/Documents/SWMMpulse/HS_calib_120_simp.out'
     #lpath = 'C:/Users/albert/Documents/SWMMpulse/HS_calib_120_simp.out'
-    print("...loading hydraulic lookup")
+    logger.info("...loading hydraulic lookup")
     qlut = QFrame(lpath)
     #gpath = '/mnt/c/Users/albert/documents/SWMMpulse/HS_calib_120_simp.inp'
     #pop_data = '/mnt/c/Users/albert/documents/SWMMpulse/HS_calib_120_simp/Junctions.dbf'
     #gpath = 'C:/Users/albert/Documents/SWMMpulse/HS_calib_120_simp.inp'
     #pop_data = 'C:/Users/albert/Documents/SWMMpulse/HS_calib_120_simp/Junctions.dbf'
-    print("...loading graph model")
+    logger.info("...loading graph model")
     graph = ntwk.from_swmm(gpath)
-    print("...loading population data")
+    logger.info("...loading population data")
     graph.nodedata_from_dbf(pop_data, cols="POP")
     return graph,qlut
 
@@ -134,44 +136,44 @@ def simulation(sim_dict, debug=False):
     path = sim_dict["path"]
     evalnode = sim_dict["evalnode"]
     constituents = sim_dict["constituents"]
+    prefix = sim_dict["prefix"]
+    logger = sim_dict["logger"]
 
     #print(f"VARIATION {i}\n")
     fraction = 0.0001 + 0.0006 * i / 1000
     env.groups[0].weight = (1 - fraction)
     env.groups[1].weight = fraction
-    fname = f"s1_variation_{str(i).zfill(4)}"
+    fname = f"{prefix}_variation_{str(i).zfill(4)}"
 
     # Create routetable
-    if debug:
-        print("...creating Packetrouter")
+    logger.debug("...creating Packetrouter")
 
     router = PRouter(graph=graph, qlookup=qlut)
     router.env = env
 
-    if debug:
-        print("...creating Routetable")
+    logger.debug("...creating Routetable")
 
     routetable = router.route(fname)
     routetable.to_parquet(os.path.join(path, "route_tables"))
 
-    if debug:
-        print("...creating Postprocessing from Routetable")
+    logger.debug("...creating Postprocessing from Routetable")
 
     # Slice routetable
     pproc = Postprocessing.from_rtable(routetable, evalnode, qlut, graph)
 
-    if debug:
-        print("...calculate Timeseries for constituents")
+    logger.debug("...calculate Timeseries for constituents")
 
     # Create timeseries for each constituent
-    for constituent in tqdm(constituents):
+    for constituent in constituents:
         pproc.process_constituent(constituent, os.path.join(path, "entries"))
         pproc.__getattribute__(constituent).to_parquet(os.path.join(path, "entries"))
 
-    print("check timeseries!")
-    print("simulation finished")
+    logger.debug("check timeseries!")
+    logger.info("simulation finished")
 
 def mp_simulation():
+    logging.basicConfig(level=50, force=True)
+    logger = logging.getLogger("Testsimulation")
     # Settings
     #path = f'/mnt/c/Users/albert/documents/SWMMpulse/'
     path = f'C:/Users/albert/documents/SWMMpulse/'
@@ -180,9 +182,10 @@ def mp_simulation():
     env = Environment()
     graph, qlut = prepare_environment()
     constituents = [Loading.COV]
+    prefix = "s3"
 
     sims = [{"i":i, "graph":graph, "qlut":qlut, "constituents":constituents, "evalnode":evalnode, "path":path,\
-             "env":env} for i in tqdm(range(n), desc="Preparing inputs for variations...")]
+             "env":env, "prefix":prefix, "logger":logger} for i in tqdm(range(n), desc="Preparing inputs for variations...")]
     pool = Pool(processes=6)
     for _ in tqdm(pool.imap(simulation, sims, chunksize=6), desc="Processing variations...", total=len(sims)):
         pass
@@ -191,16 +194,20 @@ def mp_simulation():
     print("Multiprocessing finished")
 
 def test_sim():
+    logging.basicConfig(level=10)
+    logger = logging.getLogger("Testsimulation")
+
     path = f'C:/Users/albert/documents/SWMMpulse/'
     evalnode = 'MH327-088-1'
-    print("...building environment")
+    prefix = "testsim"
+    logger.info("...building environment")
     env = Environment()
     graph, qlut = prepare_environment()
     constituents = [Loading.COV, Loading.FECAL]
-    print("...simulate")
-    simulation({"i":99999, "graph":graph, "qlut":qlut, "constituents":constituents, "evalnode":evalnode, "path":path,\
-             "env":env}, debug=True)
-    print("process ended")
+    logger.info("...simulate")
+    simulation({"i":1000, "graph":graph, "qlut":qlut, "constituents":constituents, "evalnode":evalnode, "path":path,\
+             "env":env, "prefix":prefix, "logger":logger}, debug=True)
+    logger.info("process ended")
 
 def post_calculate_fecal_ts():
     path = f'C:/Users/albert/documents/SWMMpulse/'
@@ -270,8 +277,55 @@ def bulk_simulation():
             print(f"...saving timeseries for {constituent}")
             pproc.__getattribute__(constituent).to_parquet(os.path.join(path, "entries"))
 
+def aggregate_timeseries():
+    import os
+    import pandas as pd
+    from tqdm import tqdm
+
+    path = r"C://users/albert/documents/swmmpulse/entries"
+    files = [file for file in os.listdir(path) if (file[:4] == "tss3") and (file.strip(".parquet")[-4:] == "vals")]
+
+    fid = int(files[0].split("_")[2])
+    tempseries = pd.read_parquet(os.path.join(path, files[0])).fillna(0.0).sum(axis=1).rename(str(fid))
+    df_series = pd.DataFrame(tempseries)
+
+    for file in tqdm(files[1:]):
+        fid = int(file.split("_")[2])
+        tempseries = pd.read_parquet(os.path.join(path, file)).fillna(0.0).sum(axis=1).rename(str(fid))
+        df_series = df_series.join(tempseries)
+
+    df_series.to_parquet(os.path.join(path, "aggregated_timeseries_ts3.parquet"), compression="LZ4")
+    print("finished")
+
+def extract_infected():
+    import os
+    import pandas as pd
+    from tqdm import tqdm
+
+    def create_names(fname):
+        fid = int(fname.split("_")[2])
+        pk = fname.replace("routetable", "packets")
+        return fid, fname, pk
+
+    path = r"C:\Users\albert\Documents\SWMMpulse\route_tables"
+    files = [file for file in os.listdir(path) if (file[:2] == "s3") and (file.split(".")[0][-10:] == "routetable")]
+    print(files)
+    print("test")
+    ls = []
+    for file in tqdm(files):
+        fid, rt, pk = create_names(file)
+        df_packets = pd.read_parquet(os.path.join(path, pk))
+        n_inf = df_packets.loc[df_packets["contents"].map(lambda x: x.__contains__("Cov-RNA"))]["pid"].count()
+        n_tot = df_packets["pid"].count()
+        r_inf = n_inf/n_tot
+        ls.append({"sim_id": fid, "n_tot": n_tot, "n_inf": n_inf, "r_inf": r_inf})
+    df = pd.DataFrame(ls)
+    df.to_parquet(os.path.join(path, "infected_rates.parquet"), compression="LZ4")
+
 if __name__ == "__main__":
     #test_sim()
-    mp_simulation()
+    #mp_simulation()
+    #aggregate_timeseries()
+    extract_infected()
 
     print('finished')

@@ -176,13 +176,13 @@ class _Route_table:
         print('RTable Object saved')
         return True
 
-    def to_parquet(self, fpath):
+    def to_parquet(self, fpath, compression="brotli"):
         #import time
         #extract packets and write to table
         packets = [r[0].to_list() for r in self.content]
         #packets = [r[0].to_list() for r in tqdm(self.content, desc="Saving packets...")]
         dfp = pd.DataFrame(packets, columns=self.content[0][0].tags)
-        dfp.to_parquet(os.path.join(fpath,self.name+"_packets.parquet"), compression="brotli")
+        dfp.to_parquet(os.path.join(fpath,self.name+"_packets.parquet"), compression=compression)
 
         #write routetable to table
         #start = time.time()
@@ -199,7 +199,7 @@ class _Route_table:
         return True
 
     def from_parquet(self, fpath):
-        dfrt = pd.read_parquet(path)
+        dfrt = pd.read_parquet(fpath)
         #dfp =
 
     @staticmethod
@@ -260,7 +260,7 @@ class Postprocessing:
 
     def process_constituent(self, constituent, entry_loc , load=False):
         ts = self._create_tseries(constituent, entry_loc, load, "ts" + self.name.strip("pproc"))
-        self.__setattr__(constituent,ts)
+        self.__setattr__(constituent, ts)
         return ts
 
     def as_conc(self, values):

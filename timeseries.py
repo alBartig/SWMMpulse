@@ -538,10 +538,10 @@ class TSeries:
     def norm_time(self, time):
         return dt.datetime.combine(self.date, time.time())
 
-    def to_parquet(self, path):
+    def to_parquet(self, path, compression='brotli'):
         self.dfseries.columns = [str(c) for c in self.dfseries.columns]
-        self.dfseries.reset_index().to_parquet(os.path.join(path, (self.name + "_vals.parquet")))
-        self.dftags.to_parquet(os.path.join(path, (self.name + "_tags.parquet")))
+        self.dfseries.reset_index().to_parquet(os.path.join(path, (self.name + "_vals.parquet")), compression=compression)
+        self.dftags.to_parquet(os.path.join(path, (self.name + "_tags.parquet")), compression=compression)
 
     @staticmethod
     def find_seconds(time, freq):
