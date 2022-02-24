@@ -13,6 +13,103 @@ import numpy as np
 import os
 from copy import copy, deepcopy
 
+class Router:
+    def __init__(self):
+        pass
+
+    def add_flows(self, qlookup):
+        """
+        Adds a hydraulic lookup table to the router
+        Args:
+            qlookup: hydraulic lookup table
+
+        Returns:
+            None
+        """
+        self.flows = qlookup
+        return None
+
+    def add_sewer(self, graph):
+        """
+        Adds a graph containing the node data and the population data to the router
+        Args:
+            graph (DirectedTree): sewer netwpork as graph
+
+        Returns:
+            None
+        """
+        self.graph = graph
+        return None
+
+    def add_environment(self, env):
+        """
+        Adds environment to the router
+        Args:
+            env (Environment): environment
+
+        Returns:
+            None
+        """
+        self.environment = env
+        return None
+
+    def _route_packet(self, packet):
+        """
+        routs each packet by tracing the path in the system and then adding up
+        traveltimes between each node
+        Args:
+            packet (dict): dictionary of the packet to be routed
+
+        Returns:
+
+        """
+        path = self.graph.trace_path(packet.get("origin")) #trace path
+        ct = packet.get("t0") #get origin time
+        stops = [(packet.get("origin"),ct)]
+        for stop in path[1:]:
+            node = stop[0]
+            link = stop[1]
+            #lookup velocity, if v == 0 break routing
+            v,delay = self.qlookup.lookup_v(link, ct)
+            if v is None:
+                break
+            try:
+                td = int(round(self.graph.get_linkvalue(link,gc.LENGTH) / v))
+            except:
+                print(f"Link: {link}, Conduit length: {self.graph.get_linkvalue(link,'LENGTH')}, Velocity: {v}")
+                raise ValueError
+            if td < 0:
+                print('flowtime negative')
+                raise PlausibilityError
+            ct = ct + datetime.timedelta(seconds=td) + delay
+            stops.append((node,ct))
+            #check for plausibility:
+            for stop in stops:
+                if stop[1] < packet.t0:
+                    raise RoutingError(packet, stops)
+        return (packet,stops)
+
+    def route(self):
+        """
+        Create routetable.
+        Prepare input data ahead with: add_flow(), add_graph(), add_environment()
+        Returns:
+            pd.DataFrame
+        """
+        columns = self.graph.adjls.keys() #getting nodes for routetable
+        npop = sum([self.graph.get_nodevalue(node, "POP") for node in columns]) #summing population in graph
+        packets = self.environment.get_packets(npop) #generate a dictionary with all packets and metadata
+
+        for packet in packets:
+
+
+        routetable = packets #copy all packetdata to generate a routetable
+        routetable[columns] = np.nan #add all nodes as columns with nan values
+
+        routetable = self.
+        return routetable
+
+
 class PRouter:
     def __init__(self,graph,qlookup):
         self.qlookup = qlookup
