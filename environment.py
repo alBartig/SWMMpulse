@@ -141,7 +141,10 @@ class Environment:
 
     def get_packets(self, population):
         """
-        Returns a dictionary with number of packets of the given environment
+        Returns a dictionary with number of packets of the given environment.
+        A pool of individuals is created by creating a list with the node-strings in it, as often as there are people at
+        that node. This pool is shuffled. For each group, the weighted slice is taken from the pool and then extended/shrunken
+        according to the dailypoops of that group. Then a dictionary with all packets and their metadata is created for each poop.
         Args:
             population (list): list of tuples (node, population)
 
