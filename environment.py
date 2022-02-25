@@ -1,9 +1,12 @@
+from typing import Dict, Any
+
 from datetime import datetime, timedelta
 import numpy as np
 from pobject import PObject
 import random
 from pconstants import Loading
 from helpers import get_weighted_population
+import pandas as pd
 
 class Units:
     GRAM = 'g'
@@ -38,11 +41,13 @@ class DefaultPatterns:
 
 
 class Group:
+    time_range = pd.date_range(datetime.datetime.today().date(), periods=24*60*6, freq="10S")
+
     def __init__(self, name, constituents=None, weight=0.5, pattern=DefaultPatterns.BRISTOL, dailypoops=1):
         self.name = name
         self.constituents = constituents
         self.weight = weight #as fraction of overall population
-        self.pattern = pattern
+        self.pattern = self._standardize_pattern(pattern)
         self.dailypoops = dailypoops
 
     def __repr__(self):
@@ -51,6 +56,40 @@ class Group:
     def set(self, **kwargs):
         [setattr(self, k, v) for k, v in kwargs.items()]
 
+    def _standardize_pattern(self, pattern):
+        """
+        Takes the input weights and interpolates weights for a frequency of 10S
+        Args:
+            pattern (list): list of weights
+
+        Returns:
+            list
+        """
+        dest_range = Group.time_range #date_range in destination frequency
+        orig_range = pd.date_range(datetime.date.today(), datetime.date.today() + datetime.timedelta(days=1),
+                                  periods=len(pattern)+1, inclusive="left") #date_range with period of input pattern
+        s_weights = pd.Series(pattern, index=orig_range)
+        s_weights = s_weights.reindex(dest_range)
+        s_weights[s_weights.index[-1]] = s_weights[s_weights.index[0]]
+        s_weights.interpolate(inplace=True)
+        return s_weights.values
+
+    def _packet_gen(self, i, node=None):
+        """
+        creates a packet dictionary with an id and an origin time. The time is assigned randomly
+        according to the time pattern in the environment
+        Args:
+            i (int): index number for packet, should be unique in the list
+
+        Returns:
+            dict
+        """
+        packet = {"pid": f"P{int(i):d}",
+                  "t0": random.choices(Group.time_range.values, weights=self.pattern, k=1),
+                  "classification": self.name,
+                  "constituents": self.constituents,
+                  "origin": node}
+        return packet
 
     def plist(self, origin, population, nowd=None, startid=0):
         """
@@ -93,10 +132,40 @@ class DefaultGroups:
 
 
 class Environment:
-    def __init__(self, groups=[DefaultGroups.HEALTHY, DefaultGroups.INFECTED], dispersion=0.16, date=datetime(day=17,month=8,year=2020)):
+    def __init__(self, groups=None, dispersion=0.16, date=datetime(day=17, month=8, year=2020)):
+        if groups is None:
+            groups = [DefaultGroups.HEALTHY, DefaultGroups.INFECTED]
         self.dispersion = dispersion
         self.groups = groups
         self.date = date
+
+    def get_packets(self, population):
+        """
+        Returns a dictionary with number of packets of the given environment
+        Args:
+            population (list): list of tuples (node, population)
+
+        Returns:
+            dict
+        """
+        #create each individual in environment as a string in order to pick randomly later
+        people = []
+        for node in population:
+            people += node[0] * node[1]
+        random.shuffle(people) #shuffle list of people
+        pop_tot = len(people)
+
+        weights_tot = sum(g.weight for g in self.groups) #calculate sum of weights of groups
+        packets = {} #prepare dictionary for packets
+        j = 0 #counter for packets
+        for group in self.groups:
+            n = int(np.around(group.weight * pop_tot / weights_tot, 0)) #calculate number of people to pick
+            picks = people[j, j+n] #slice the chunk of people
+            d, r = (n * group.dailypoops / n), (n * group.dailypoops / n) #calculate modulo operator to multiply and slice to extend pickinglist
+            picks = picks*d + picks[:r] #extend picks to make up for extra daily poops
+            packets.update({i: group._packet_gen(i, node) for i, node in zip(range(j,j+n),picks)}) #generate n packets and add to dictionary
+            j += n #counter for packets
+        return packets
 
     @property
     def constituents(self):

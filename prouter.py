@@ -33,7 +33,7 @@ class Router:
         """
         Adds a graph containing the node data and the population data to the router
         Args:
-            graph (DirectedTree): sewer netwpork as graph
+            graph (DirectedTree): sewer network as graph
 
         Returns:
             None
@@ -61,16 +61,15 @@ class Router:
             packet (dict): dictionary of the packet to be routed
 
         Returns:
-
+            list
         """
         path = self.graph.trace_path(packet.get("origin")) #trace path
         ct = packet.get("t0") #get origin time
-        stops = [(packet.get("origin"),ct)]
+        stops = [(packet.get("origin"), ct)] #prepare list for stops
         for stop in path[1:]:
-            node = stop[0]
-            link = stop[1]
+            node, link = stop[0], stop[1]
             #lookup velocity, if v == 0 break routing
-            v,delay = self.qlookup.lookup_v(link, ct)
+            v,delay = self.flows.lookup_v(link, ct) #lookup flowvelocity (and delay until v > 0)
             if v is None:
                 break
             try:
@@ -82,12 +81,13 @@ class Router:
                 print('flowtime negative')
                 raise PlausibilityError
             ct = ct + datetime.timedelta(seconds=td) + delay
-            stops.append((node,ct))
+            stops.append((node, ct)) #append stop
             #check for plausibility:
-            for stop in stops:
-                if stop[1] < packet.t0:
+            t0 = packet.get("t0")
+            for stop in stops: #this could maybe be eliminated!!
+                if stop[0] < t0:
                     raise RoutingError(packet, stops)
-        return (packet,stops)
+        return stops
 
     def route(self):
         """
@@ -97,16 +97,15 @@ class Router:
             pd.DataFrame
         """
         columns = self.graph.adjls.keys() #getting nodes for routetable
-        npop = sum([self.graph.get_nodevalue(node, "POP") for node in columns]) #summing population in graph
-        packets = self.environment.get_packets(npop) #generate a dictionary with all packets and metadata
+        #extracting population-data from graph
+        population = [(node, self.graph.get_nodevalue(node, "POP")) for node in columns]
+        packets = self.environment.get_packets(population) #generate a dictionary with all packets and contents
 
-        for packet in packets:
+        for packet in packets.values(): #iterate through packets in packets-dictionary
+            stops = self._route_packet(packet) #calculate path for packet
+            packet.update({stop: time for stop, time in stops}) #update dictionary
 
-
-        routetable = packets #copy all packetdata to generate a routetable
-        routetable[columns] = np.nan #add all nodes as columns with nan values
-
-        routetable = self.
+        routetable = pd.DataFrame.from_dict(packets, orient="index") #generate DataFrame from packets-dictionary
         return routetable
 
 
