@@ -14,6 +14,21 @@ class Units:
     MICROGRAM = 'ug'
     COUNT = '#'
 
+class PACKET:
+    CLASSIFICATION = "classification"
+    PACKETID = "pid"
+    CONSTITUENTS = "constituents"
+    ORIGIN = "origin"
+    T0 = "t0"
+    AGE = "age"
+    ARRIVAL_TIME = "arrival_time"
+
+
+class CONSTITUENT:
+    DECAY_RATE = "decay_rate"
+    SPECIFIC_LOAD = "specific_load"
+    DISPERSION_RATE = "dispersion_rate"
+
 
 class Constituent:
     def __init__(self, name, specific_load, unit, degradation_coefficient=0, probability=1):
@@ -84,11 +99,11 @@ class Group:
         Returns:
             dict
         """
-        packet = {"pid": f"P{int(i):d}",
-                  "t0": random.choices(Group.time_range.values, weights=self.pattern, k=1),
-                  "classification": self.name,
-                  "constituents": self.constituents,
-                  "origin": node}
+        packet = {PACKET.PACKETID: f"P{int(i):d}",
+                  PACKET.T0: random.choices(Group.time_range.values, weights=self.pattern, k=1),
+                  PACKET.CLASSIFICATION: self.name,
+                  PACKET.CONSTITUENTS: self.constituents,
+                  PACKET.ORIGIN: node}
         return packet
 
     def plist(self, origin, population, nowd=None, startid=0):

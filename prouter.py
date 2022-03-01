@@ -4,7 +4,7 @@ from timeseries import QSeries, TSeries, TDict
 import create_loadings
 from pconstants import Discretization, Loading
 import datetime
-from environment import Environment
+from environment import Environment, PACKET, CONSTITUENT
 from tqdm import tqdm
 import pickle
 from Exceptions import RoutingError, PlausibilityError
@@ -107,6 +107,65 @@ class Router:
 
         routetable = pd.DataFrame.from_dict(packets, orient="index") #generate DataFrame from packets-dictionary
         return routetable
+
+    def _postprocess_packet(self, packet, constituent):
+        """
+        Calculates timeseries from packet
+        Args:
+            packet (dict): packetdictionary, containing packetmetadata
+
+        Returns:
+            dict
+        """
+        age = packet.get(PACKET.AGE)
+        tm = packet.get(PACKET.ARRIVAL_TIME)
+        #prepare empty timeseries
+        timeseries = np.empty(len(datetimeindex))
+        timeseries[:] = np.NaN
+
+        #calculate reduced load
+        load_0 = self.environment.constituents.get(constituent).get(CONSTITUENT.SPECIFIC_LOAD)
+        decay_rate = self.environment.constituents.get(constituent).get(CONSTITUENT.DECAY_RATE)
+        load_red = load_0 * np.e ** (decay_rate * age / 86400)
+
+        #calculate dispersion-spread
+        #2SD of normal distributed dispersion after Fick; SD = (2*D*t)**0.5
+        #95% of load are within 2SD of the mean
+        two_sd_m = 2 * (2 * self.environment.get(CONSTITUENT.DISPERSION_RATE * age) ** 0.5) #spread in m
+        flow_velocity = round(self.flows.lookup_v(link, tm)[0], 1)
+        two_sd_s = two_sd_m / flow_velocity #spread in s
+        dx = flow_velocity * Discretization.TIMESTEPLENGTH.total_seconds()
+
+
+
+        return {packet.get(PACKET.PACKETID):timeseries}
+
+    def postprocess(self, node, constituent, routetable):
+        """
+        Creates a timeseries-table pd.DataFrame from a given routetable for a given node and constituent.
+        The DataFrame contains a  column for each packet routed with numerical values for timesteps
+        that contain the constituent and np.NaN values for timesteps that don't.
+        Args:
+            node (str): name of the node for which to create the timeseries
+            constituent (str): name of the constituent for which to create the timeseries
+            routetable (pd.DataFrame): routetable DataFrame, returned from self.route()
+
+        Returns:
+            pd.DataFrame
+        """
+        #slice the routetable dataframe to the relevant columns and select only rows that contain the constituent
+        process_data = routetable.loc[routetable[PACKET.CONSTITUENTS].apply(lambda l: constituent in l),
+                                      [PACKET.PACKETID, PACKET.CLASSIFICATION, PACKET.ORIGIN,
+                                       PACKET.T0, PACKET.CONSTITUENTS,  node]]
+        #convert DataFrame to dict:
+        process_data.rename(columns:)
+        process_data = process_data.to_dict(orient="index")
+
+        timeseries_data = {}
+        for packet in process_data.values():
+            timeseries_data.update(self._postprocess_packet(packet, constituent))
+
+        return pd.DataFrame(timeseries_data, index=datetimeindex)
 
 
 class PRouter:
