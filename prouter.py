@@ -118,7 +118,7 @@ class Router:
             dict
         """
         age = packet.get(PACKET.AGE)
-        tm = packet.get(PACKET.ARRIVAL_TIME)
+        tm = self.flows.norm_time(packet.get(PACKET.ARRIVAL_TIME)) #load arrival time and shift to a reference time
         #prepare empty timeseries
         timeseries = np.empty(len(datetimeindex))
         timeseries[:] = np.NaN
@@ -126,15 +126,42 @@ class Router:
         #calculate reduced load
         load_0 = self.environment.constituents.get(constituent).get(CONSTITUENT.SPECIFIC_LOAD)
         decay_rate = self.environment.constituents.get(constituent).get(CONSTITUENT.DECAY_RATE)
-        load_red = load_0 * np.e ** (decay_rate * age / 86400)
+        load_reduced = load_0 * np.e ** (decay_rate * age / 86400)
+        fractions = self.environment.constituents.get(constituent).get(CONSTITUENT.FRACTIONS)
+        flow_velocity = round(self.flows.lookup_v(link, tm)[0], 1) #lookup flow velocity
+        flow_rate = self.flows.lookup_q(link, tm)[0]
 
         #calculate dispersion-spread
         #2SD of normal distributed dispersion after Fick; SD = (2*D*t)**0.5
         #95% of load are within 2SD of the mean
         two_sd_m = 2 * (2 * self.environment.get(CONSTITUENT.DISPERSION_RATE * age) ** 0.5) #spread in m
-        flow_velocity = round(self.flows.lookup_v(link, tm)[0], 1)
-        two_sd_s = two_sd_m / flow_velocity #spread in s
-        dx = flow_velocity * Discretization.TIMESTEPLENGTH.total_seconds()
+        two_sd_s = two_sd_m / flow_velocity #two standard devitions in s
+        dt = Discretization.TIMESTEPLENGTH.total_seconds()
+        border = max(np.ceil(two_sd_s / dt) * dt, 1) #round up the spread to full timestep
+
+        series = []
+        for fraction in fractions: #iterate through the different fractions of the constituent
+            fractionized_load = fraction.get(CONSTITUENT.FRACTION) * load_reduced #take part of load of fraction
+            skewedness = fraction.get(CONSTITUENT.SKEWEDNESS) #lookup a skewedness-factor to shift peak or receding limb
+            peak = 2 * fractionized_load / ((skewedness + 1) * border) #calculate peak of load
+            x = np.arange(-border, skewedness * border + dt, dt) #calculate x as array
+            y = np.interp(x, [-border, 0, skewedness * border], [0, peak, 0]) #fill load-array
+            series.append((x,y))
+
+        xmin = min([s[0][0] for s in series])
+        xmax = max([s[0][-1] for s in series])
+
+        xcomb = np.round(np.arange(xmin, xmax+dt, dt), 8)
+        ycomb = np.zeros(len(xcomb))
+        for s in series:
+            ycomb[np.nonzero(np.isin(xcomb, np.round(s[0], 8)))] += s[1] #ycomb now contains loads with unit [mass/timestep]
+        ccomb = ycomb / (flow_rate * dt) #calculates the concentration at each timestep [mass/dt seconds] / [l/dt seconds]
+        t = tm + np.array([dt.timedelta(seconds=s) for s in xcomb])
+        pd.to_datetime(t)
+        t = self.flows.norm_array(t)
+
+
+
 
 
 
@@ -158,11 +185,11 @@ class Router:
                                       [PACKET.PACKETID, PACKET.CLASSIFICATION, PACKET.ORIGIN,
                                        PACKET.T0, PACKET.CONSTITUENTS,  node]]
         #convert DataFrame to dict:
-        process_data.rename(columns:)
         process_data = process_data.to_dict(orient="index")
 
         timeseries_data = {}
         for packet in process_data.values():
+            packet[PACKET.ARRIVAL_TIME] = packet.pop(node)
             timeseries_data.update(self._postprocess_packet(packet, constituent))
 
         return pd.DataFrame(timeseries_data, index=datetimeindex)
