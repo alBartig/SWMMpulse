@@ -51,6 +51,7 @@ class Router:
             None
         """
         self.environment = env
+        self.datetimeindex = pd.date_range(env.get("date"), periods=8640, freq="10S")
         return None
 
     def _route_packet(self, packet):
@@ -120,8 +121,7 @@ class Router:
         age = packet.get(PACKET.AGE)
         tm = self.flows.norm_time(packet.get(PACKET.ARRIVAL_TIME)) #load arrival time and shift to a reference time
         #prepare empty timeseries
-        timeseries = np.empty(len(datetimeindex))
-        timeseries[:] = np.NaN
+        timeseries = np.zeros(len(self.datetimeindex))
 
         #calculate reduced load
         load_0 = self.environment.constituents.get(constituent).get(CONSTITUENT.SPECIFIC_LOAD)
@@ -156,16 +156,14 @@ class Router:
         for s in series:
             ycomb[np.nonzero(np.isin(xcomb, np.round(s[0], 8)))] += s[1] #ycomb now contains loads with unit [mass/timestep]
         ccomb = ycomb / (flow_rate * dt) #calculates the concentration at each timestep [mass/dt seconds] / [l/dt seconds]
-        t = tm + np.array([dt.timedelta(seconds=s) for s in xcomb])
-        pd.to_datetime(t)
-        t = self.flows.norm_array(t)
 
+        hr, mn, sk = tm.hour, tm.minute, tm.second #calculate index of tm in timeseries
+        i0 = hr * 360 + mn * 6 + sk
+        insert_index = np.arange(i0-border, i0+skewedness*border) #calculate indices for the entire pulse
+        insert_index = insert_index % len(self.datetimeindex) #shift pulse indices in case it crosses to next date
+        timeseries[insert_index] = ccomb #insert pulse concentrations into big array
 
-
-
-
-
-        return {packet.get(PACKET.PACKETID):timeseries}
+        return timeseries
 
     def postprocess(self, node, constituent, routetable):
         """
@@ -187,12 +185,14 @@ class Router:
         #convert DataFrame to dict:
         process_data = process_data.to_dict(orient="index")
 
-        timeseries_data = {}
-        for packet in process_data.values():
+        timeseries_arr = np.zeros([len(process_data), self.datetimeindex])
+        timeseries_columns = [np.empty(len(process_data))]
+        for i, packet in enumerate(process_data.values()):
             packet[PACKET.ARRIVAL_TIME] = packet.pop(node)
-            timeseries_data.update(self._postprocess_packet(packet, constituent))
+            timeseries_arr[i] = self._postprocess_packet(packet, constituent)
+            timeseries_columns[i] = packet.get(PACKET.PACKETID)
 
-        return pd.DataFrame(timeseries_data, index=datetimeindex)
+        return pd.DataFrame(timeseries_arr.T, columns=timeseries_columns, index=self.datetimeindex)
 
 
 class PRouter:
