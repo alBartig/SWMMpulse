@@ -523,7 +523,10 @@ class TSeries:
                 "M": 60,
                 "H": 3600}
 
-    def __init__(self, timestamps, entries=None, freq="10S", tagnames=[], name=None):
+    def __init__(self, timestamps, entries=None, freq="10S", tagnames=None, name=None):
+        if tagnames is None:
+            tagnames = []
+
         self.entrycount = 0
         self.date, timestamps = self._reg_datetimeindex(timestamps, freq)
         self.freq = int(freq[:-1] * self.freqmult[freq[-1:]])

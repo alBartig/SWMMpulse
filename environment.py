@@ -143,7 +143,7 @@ class Group:
 
 class DefaultGroups:
     HEALTHY = Group(name='Healthy', weight=0.8, constituents=[DefaultConstituents.FECAL, DefaultConstituents.PEP])
-    INFECTED = Group(name='Infected', weight=0.2, constituents=[DefaultConstituents.FECAL,\
+    INFECTED = Group(name='Infected', weight=0.2, constituents=[DefaultConstituents.FECAL,
                                                                 DefaultConstituents.PEP, DefaultConstituents.COV])
 
 
