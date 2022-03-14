@@ -4,6 +4,7 @@ from timeseries import QSeries, TSeries, TDict
 import create_loadings
 from pconstants import Discretization, Loading
 import datetime
+from swmm_api import read_out_file
 from environment import Environment, PACKET, CONSTITUENT
 from tqdm import tqdm
 import pickle
@@ -179,17 +180,22 @@ class Router:
             pd.DataFrame
         """
         #slice the routetable dataframe to the relevant columns and select only rows that contain the constituent
-        process_data = routetable.loc[routetable[PACKET.CONSTITUENTS].apply(lambda l: constituent in l),
+        packet_data = routetable.loc[routetable[PACKET.CONSTITUENTS].apply(lambda l: constituent in l),
                                       [PACKET.PACKETID, PACKET.CLASSIFICATION, PACKET.ORIGIN,
-                                       PACKET.T0, PACKET.CONSTITUENTS,  node]]
+                                       PACKET.T0, PACKET.CONSTITUENTS, node]]
         #convert DataFrame to dict:
-        process_data = process_data.to_dict(orient="index")
+        packet_data = packet_data.to_dict(orient="index")
 
-        timeseries_arr = np.zeros([len(process_data), self.datetimeindex])
-        timeseries_columns = [np.empty(len(process_data))]
-        for i, packet in enumerate(process_data.values()):
+        timeseries_arr = np.zeros([len(packet_data), self.datetimeindex])
+        timeseries_columns = [np.empty(len(packet_data))]
+
+        #prepare flow data / slice flows to relevant link
+        link = self.graph.get_outletlinks(node)
+        flows = self.flows[link]
+
+        for i, packet in enumerate(packet_data.values()):
             packet[PACKET.ARRIVAL_TIME] = packet.pop(node)
-            timeseries_arr[i] = self._postprocess_packet(packet, constituent)
+            timeseries_arr[i] = self._postprocess_packet(packet, constituent, flows)
             timeseries_columns[i] = packet.get(PACKET.PACKETID)
 
         return pd.DataFrame(timeseries_arr.T, columns=timeseries_columns, index=self.datetimeindex)

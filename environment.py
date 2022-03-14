@@ -7,6 +7,7 @@ import random
 from pconstants import Loading
 from helpers import get_weighted_population
 import pandas as pd
+from swmm_api import read_out_file
 
 class Units:
     GRAM = 'g'
@@ -148,7 +149,7 @@ class DefaultGroups:
 
 
 class Environment:
-    def __init__(self, groups=None, dispersion=0.16, date=datetime(day=17, month=8, year=2020)):
+    def __init__(self, groups=None, dispersion=0.16, date=datetime(day=1, month=1, year=2000)):
         if groups is None:
             groups = [DefaultGroups.HEALTHY, DefaultGroups.INFECTED]
         self.dispersion = dispersion
@@ -192,6 +193,13 @@ class Environment:
         for group in self.groups:
             [constituents.add(c) for c in group.constituents]
         return list(constituents)
+
+    def read_swmmoutfile(self, outfile_path):
+        with read_out_file(outfile_path) as out:
+            df = out.to_frame()
+            df = df.loc[:, ("link", slice(None), ["Flow_rate", "Flow_velocity"])].droplevel(0, axis=1)
+            self.flows = df
+
 
 def test_fractions():
     env = Environment()
