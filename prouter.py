@@ -71,7 +71,8 @@ class Router:
         for stop in path[1:]:
             node, link = stop[0], stop[1]
             #lookup velocity, if v == 0 break routing
-            v,delay = self.flows.lookup_v(link, ct) #lookup flowvelocity (and delay until v > 0)
+            v = self.env.get_velocity(ct, link)
+            #v,delay = self.flows.lookup_v(link, ct) #lookup flowvelocity (and delay until v > 0)
             if v is None:
                 break
             try:
@@ -82,7 +83,7 @@ class Router:
             if td < 0:
                 print('flowtime negative')
                 raise PlausibilityError
-            ct = ct + datetime.timedelta(seconds=td) + delay
+            ct = ct + datetime.timedelta(seconds=td)# + delay
             stops.append((node, ct)) #append stop
             #check for plausibility:
             t0 = packet.get("t0")
@@ -129,8 +130,8 @@ class Router:
         decay_rate = self.environment.constituents.get(constituent).get(CONSTITUENT.DECAY_RATE)
         load_reduced = load_0 * np.e ** (decay_rate * age / 86400)
         fractions = self.environment.constituents.get(constituent).get(CONSTITUENT.FRACTIONS)
-        flow_velocity = round(self.flows.lookup_v(link, tm)[0], 1) #lookup flow velocity
-        flow_rate = self.flows.lookup_q(link, tm)[0]
+        flow_velocity = round(self.env.get_velocity(tm, packet.get(PACKET.LINK), 1)) #lookup flow velocity
+        flow_rate = self.env.get_flow_rate(tm, packet.get(PACKET.LINK))
 
         #calculate dispersion-spread
         #2SD of normal distributed dispersion after Fick; SD = (2*D*t)**0.5
@@ -195,7 +196,8 @@ class Router:
 
         for i, packet in enumerate(packet_data.values()):
             packet[PACKET.ARRIVAL_TIME] = packet.pop(node)
-            timeseries_arr[i] = self._postprocess_packet(packet, constituent, flows)
+            packet[PACKET.LINK] = link
+            timeseries_arr[i] = self._postprocess_packet(packet, constituent)
             timeseries_columns[i] = packet.get(PACKET.PACKETID)
 
         return pd.DataFrame(timeseries_arr.T, columns=timeseries_columns, index=self.datetimeindex)

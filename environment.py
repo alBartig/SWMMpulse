@@ -24,6 +24,8 @@ class PACKET:
     T0 = "t0"
     AGE = "age"
     ARRIVAL_TIME = "arrival_time"
+    LINK = "link"
+    NODE = "node"
 
 
 class CONSTITUENT:
@@ -195,10 +197,41 @@ class Environment:
         return list(constituents)
 
     def read_swmmoutfile(self, outfile_path):
+        """
+        Reads swmm-outfile, interpolates to 10s frequency and reindexes to chosen environment date
+        Args:
+            outfile_path (str): path to swmm-outfile
+
+        Returns:
+            None
+        """
         with read_out_file(outfile_path) as out:
+            #import outfile as dataframe
             df = out.to_frame()
             df = df.loc[:, ("link", slice(None), ["Flow_rate", "Flow_velocity"])].droplevel(0, axis=1)
-            self.flows = df
+            #reindex and interpolate dataframe
+            _date = df.index[0].date()
+            _dtindex = pd.date_range(_date, periods=8641, freq="10S")
+            df = df.reindex(_dtindex)
+            df.loc[df.index[-1], :] = df.loc[df.index[0], :]
+            df.interpolate(direction="both", inplace=True)
+            df.drop(df.index[-1], inplace=True)
+            df.index = df.index.map(lambda d: d.replace(year=self.date.year, month=self.date.month, day=self.date.day))
+            self.flow_rates = df.xs("Flow-rate", axis=1, level=1).to_dict(orient="list")
+            self.flow_velocities = df.xs("Flow-velocities", axis=1, level=1).to_dict(orient="list")
+            self.TIMESTEPS = len(df.index)
+        return None
+
+    def _calc_index(self, time):
+        hr, mn, sk = time.hour, time.minute, time.second #calculate index of tm in timeseries
+        i0 = (hr * 360 + mn * 6 + sk) % self.TIMESTEPS
+        return i0
+
+    def get_velocity(self, time, link):
+        return self.flow_velocities.get(link)[self._calc_index(time)]
+
+    def get_flow_rate(self, time, link):
+        return self.flow_rates.get(link)[self._calc_index(time)]
 
 
 def test_fractions():
