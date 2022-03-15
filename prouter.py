@@ -65,13 +65,13 @@ class Router:
         Returns:
             list
         """
-        path = self.graph.trace_path(packet.get("origin")) #trace path
-        ct = packet.get("t0") #get origin time
-        stops = [(packet.get("origin"), ct)] #prepare list for stops
+        path = self.graph.trace_path(packet.get(PACKET.ORIGIN)) #trace path
+        ct = packet.get(PACKET.T0) #get origin time
+        stops = [(packet.get(PACKET.ORIGIN), ct)] #prepare list for stops
         for stop in path[1:]:
             node, link = stop[0], stop[1]
             #lookup velocity, if v == 0 break routing
-            v = self.env.get_velocity(ct, link)
+            v = self.environment.get_velocity(ct, link)
             #v,delay = self.flows.lookup_v(link, ct) #lookup flowvelocity (and delay until v > 0)
             if v is None:
                 break
@@ -111,7 +111,7 @@ class Router:
         routetable = pd.DataFrame.from_dict(packets, orient="index") #generate DataFrame from packets-dictionary
         return routetable
 
-    def _postprocess_packet(self, packet, constituent):
+    def _postprocess_packet(self, packet, constituent, flow_velocities, flow_rates):
         """
         Calculates timeseries from packet
         Args:
@@ -122,6 +122,7 @@ class Router:
         """
         age = packet.get(PACKET.AGE)
         tm = self.flows.norm_time(packet.get(PACKET.ARRIVAL_TIME)) #load arrival time and shift to a reference time
+        i0 = self.environment._calc_index(tm)
         #prepare empty timeseries
         timeseries = np.zeros(len(self.datetimeindex))
 
@@ -130,8 +131,8 @@ class Router:
         decay_rate = self.environment.constituents.get(constituent).get(CONSTITUENT.DECAY_RATE)
         load_reduced = load_0 * np.e ** (decay_rate * age / 86400)
         fractions = self.environment.constituents.get(constituent).get(CONSTITUENT.FRACTIONS)
-        flow_velocity = round(self.env.get_velocity(tm, packet.get(PACKET.LINK), 1)) #lookup flow velocity
-        flow_rate = self.env.get_flow_rate(tm, packet.get(PACKET.LINK))
+        flow_velocity = flow_velocities[i0] #lookup flow velocity
+        flow_rate = flow_rates[i0]
 
         #calculate dispersion-spread
         #2SD of normal distributed dispersion after Fick; SD = (2*D*t)**0.5
@@ -192,12 +193,12 @@ class Router:
 
         #prepare flow data / slice flows to relevant link
         link = self.graph.get_outletlinks(node)
-        flows = self.flows[link]
+        flow_velocities = self.environment.flow_velocities.get(link)
+        flow_rates = self.environment.flow_rates.get(link)
 
         for i, packet in enumerate(packet_data.values()):
             packet[PACKET.ARRIVAL_TIME] = packet.pop(node)
-            packet[PACKET.LINK] = link
-            timeseries_arr[i] = self._postprocess_packet(packet, constituent)
+            timeseries_arr[i] = self._postprocess_packet(packet, constituent, flow_velocities, flow_rates)
             timeseries_columns[i] = packet.get(PACKET.PACKETID)
 
         return pd.DataFrame(timeseries_arr.T, columns=timeseries_columns, index=self.datetimeindex)
