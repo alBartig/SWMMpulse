@@ -61,8 +61,10 @@ class DEFAULT:
                              3.3, 2.1, 1.5, 2.0, 1.2]
     PATTERN_BRISTOL = [round((w * 0.5 + v * 0.5), 3) for w, v in zip(PATTERN_BRISTOL_MEN, PATTERN_BRISTOL_WOMEN)]
 
-    GROUP_HEALTHY = {GROUP.NAME: "Healthy", GROUP.WEIGHT: 0.8, GROUP.CONSTITUENTS: [CONST_FECAL]}
-    GROUP_INFECTED = {GROUP.NAME: "Infected", GROUP.WEIGHT: 0.2, GROUP.CONSTITUENTS: [CONST_FECAL, CONST_COV]}
+    GROUP_HEALTHY = {GROUP.NAME: "Healthy", GROUP.WEIGHT: 0.8,
+                     GROUP.CONSTITUENTS: [CONST_FECAL], GROUP.PATTERN: PATTERN_BRISTOL}
+    GROUP_INFECTED = {GROUP.NAME: "Infected", GROUP.WEIGHT: 0.2,
+                      GROUP.CONSTITUENTS: [CONST_FECAL, CONST_COV], GROUP.PATTERN: PATTERN_BRISTOL}
 
     ENVIRONMENT = {
         UNITS.DATE: dt.date(day=1, month=1, year=2000),
@@ -96,7 +98,7 @@ class Environment:
                                    periods=len(self.time_range) + 1,
                                    inclusive="both")  # date_range in destination frequency
         orig_range = pd.date_range(date, date + dt.timedelta(days=1),
-                                   periods=len(pattern) + 1,
+                                   periods=len(pattern),
                                    inclusive="both")  # date_range with period of input pattern
         s_weights = pd.Series(pattern, index=orig_range)
         s_weights = s_weights.reindex(dest_range)
