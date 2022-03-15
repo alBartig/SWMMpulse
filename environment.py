@@ -93,6 +93,7 @@ class Environment:
             list
         """
         date = self.information.get(UNITS.DATE)
+        pattern = list(pattern)  # convert pattern to list, may be ndarray instead
         pattern.append(pattern[0])  # end pattern as it started
         dest_range = pd.date_range(date, date + dt.timedelta(days=1),
                                    periods=len(self.time_range) + 1,
@@ -152,7 +153,7 @@ class Environment:
             picks = people[j: j + n]  # slice the chunk of people
             dailypoops = group.get(GROUP.DAILYPOOPS)
             quotient, rest = (n * dailypoops / n), (
-                        n * dailypoops / n)  # calculate modulo operator to multiply and slice to extend pickinglist
+                    n * dailypoops / n)  # calculate modulo operator to multiply and slice to extend pickinglist
             # extend picks to make up for extra daily poops from non integer dailypoops
             picks = picks * quotient + picks[:rest]
             packets.update({i: self._packet_gen(i, node) for i, node in
@@ -172,7 +173,7 @@ class Environment:
         with read_out_file(outfile_path) as out:
             # import outfile as dataframe
             df = out.to_frame()
-            df = df.loc[:, ("link", slice(None), ["Flow_rate", "Flow_velocity"])].droplevel(0, axis=1)
+            df = df.loc[:, ("link", slice(None), ["flow", "velocity"])].droplevel(0, axis=1)
             # reindex and interpolate dataframe
             _date = df.index[0].date()
             _dtindex = pd.date_range(_date, periods=8641, freq="10S")
@@ -182,8 +183,8 @@ class Environment:
             df.drop(df.index[-1], inplace=True)
             date = self.information.get(UNITS.DATE)
             df.index = df.index.map(lambda d: d.replace(year=date.year, month=date.month, day=date.day))
-            self.flow_rates = df.xs("Flow-rate", axis=1, level=1).to_dict(orient="list")
-            self.flow_velocities = df.xs("Flow-velocities", axis=1, level=1).to_dict(orient="list")
+            self.flow_rates = df.xs("flow", axis=1, level=1).to_dict(orient="list")
+            self.flow_velocities = df.xs("velocity", axis=1, level=1).to_dict(orient="list")
             self.TIMESTEPS = len(df.index)
         return None
 
@@ -198,57 +199,127 @@ class Environment:
     def get_flow_rate(self, time, link):
         return self.flow_rates.get(link)[self._calc_index(time)]
 
+    def read_swmminpfile(self, inpfile_path):
+        self.graph = DirectedTree.from_swmm(inpfile_path)
+        return None
 
-def test_fractions():
+
+class DirectedTree:
+    def __init__(self, links, nodes=None):
+        self.nodeindex = 0
+        self.linkindex = 0
+        self.links = {}
+        self.adjls = {}
+
+        for link in links:
+            self.add_link(link)
+
+        if nodes is not None:
+            for n, p in nodes:
+                self.add_nodevalues(n, [('name', n), ('population', p)])
+
+    @classmethod
+    def from_swmm(cls, path):
+        from swmm_api.input_file.section_labels import JUNCTIONS, OUTFALLS, STORAGE, ORIFICES, DIVIDERS,\
+            CONDUITS, WEIRS, PUMPS, OUTLETS
+        from swmm_api import read_inp_file
+
+        linktypes = [CONDUITS, PUMPS, ORIFICES, WEIRS]
+        nodetypes = [JUNCTIONS, OUTFALLS, STORAGE, DIVIDERS]
+        inp = read_inp_file(path)
+        links = []
+        for linktype in linktypes:
+            if linktype in inp:
+                try:
+                    links += list(
+                        inp[linktype].get_dataframe(set_index=False)[["Name", "FromNode", "ToNode", "Length"]].values)
+                except:
+                    links += list(inp[linktype].get_dataframe(set_index=False)[["Name", "FromNode", "ToNode"]].values)
+        for i in range(len(links)):
+            try:
+                links[i][3] = ("length", links[i][3])
+            except:
+                pass
+        return cls(links)
+
+    def add_link(self, link):
+        name = link[0]
+        inlet = link[1]
+        outlet = link[2]
+
+        if self.links.__contains__(name) == False:
+            self.links[name] = {'name': name, 'inletnode': inlet,
+                                'outletnode': outlet, 'linkindex': self.linkindex}
+            self.linkindex += 1
+
+            if len(link) > 3:
+                for attribute in link[3:]:
+                    field = attribute[0]
+                    value = attribute[1]
+                    self.links[name][field] = value
+
+            if self.adjls.__contains__(inlet):
+                self.adjls[inlet]['outlets'].append([outlet, name])
+            else:
+                self.adjls[inlet] = {'inlets': [], 'outlets': [[outlet, name]],
+                                     'nodeindex': self.nodeindex}
+                self.nodeindex += 1
+
+            if self.adjls.__contains__(outlet):
+                self.adjls[outlet]['inlets'].append([inlet, name])
+            else:
+                self.adjls[outlet] = {'inlets': [[inlet, name]], 'outlets': [],
+                                      'nodeindex': self.nodeindex}
+                self.nodeindex += 1
+
+    def add_nodevalue(self, node, field, value, overwrite=False):
+        if self.adjls.__contains__(node):
+            if overwrite == False and self.adjls[node].__contains__(field):
+                self.adjls[node][field] += value
+            else:
+                self.adjls[node][field] = value
+            return True
+        else:
+            return False
+
+    def add_nodevalues(self, node, values):
+        '''
+        can be used to add several values. Values need to be stored in list:
+        [(field,value),(field,value),...]
+        node: str, node the values are to be added to
+        values: list, list of tuples or list of lists
+        '''
+        if self.adjls.__contains__(node):
+            if type(values) == list:
+                for entry in values:
+                    self.adjls[node][entry[0]] = entry[1]
+            elif type(values) == dict:
+                for key, value in values.items():
+                    self.adjls[node][key] = value
+            return True
+        else:
+            return False
+
+    def add_linkvalue(self, link, field, value):
+        if self.links.__contains__(link):
+            self.links[link][field] = value
+            return True
+        else:
+            return False
+
+
+def test_flows():
     env = Environment()
-    population = 1759
-    fractions = [0.00030, 0.00010, 0.00005, 0.00003]
-    test_arr = []
-    for fraction in fractions:
-        env.groups[0].weight = (1 - fraction)
-        env.groups[1].weight = fraction
-        temp = [[], []]
-        for i in range(1000):
-            plist = []
-            [plist.extend(group.plist('sample_node', population)) for group in env.groups]
-            n = len([p for p in plist if p.classification == 'Infected'])
-            temp[0].append(n)
-            temp[1].append(len(plist))
-        print(f"{fraction}: Packets: min: {min(temp[1])}, max: {max(temp[1])}, Overall: {np.mean(temp[1])}")
-    # print(plist)
-
-
-def random_correlation():
-    from collections import Counter
-    env = Environment()
-    population = 2000
-    plist = []
-    [plist.extend(group.plist('sample_node', population)) for group in env.groups]
-    originminutes = [p.t0.minute for p in plist]
-    c = Counter(originminutes)
-    print(f"Minuten: {list(c.keys())}")
-    print("Function finished")
-
-
-def random_pattern():
-    from collections import Counter
-    import matplotlib.pyplot as plt
-
-    env = Environment()
-    population = 20000
-    plist = []
-    [plist.extend(group.plist("sample_node", population)) for group in env.groups]
-    ots = [p.t0 for p in plist]
-    c = Counter(ots)
-    x, heights = list(c.keys()), list(c.values())
-    plt.bar(x, heights, width=0.002)
-    plt.show()
-
-    print("finished")
+    env.read_swmmoutfile(r"C:\Users\albert/Documents/SWMMpulse/HS_calib_120_simp.out")
+    print("finished reading output file")
+    env.read_swmminpfile(r"C:\Users\albert/Documents/SWMMpulse/HS_calib_120_simp.inp")
+    path_pop_data = r"C:\Users\albert/Documents/SWMMpulse/HS_calib_120_simp/pop_node_data.csv"
+    print("finished reading input file")
+    print("finished testing sequence")
 
 
 def main():
-    test_fractions()
+    test_flows()
 
 
 if __name__ == '__main__':
