@@ -61,9 +61,9 @@ class DEFAULT:
                              3.3, 2.1, 1.5, 2.0, 1.2]
     PATTERN_BRISTOL = [round((w * 0.5 + v * 0.5), 3) for w, v in zip(PATTERN_BRISTOL_MEN, PATTERN_BRISTOL_WOMEN)]
 
-    GROUP_HEALTHY = {GROUP.NAME: "Healthy", GROUP.WEIGHT: 0.8,
+    GROUP_HEALTHY = {GROUP.NAME: "Healthy", GROUP.WEIGHT: 0.8, GROUP.DAILYPOOPS: 1,
                      GROUP.CONSTITUENTS: [CONST_FECAL], GROUP.PATTERN: PATTERN_BRISTOL}
-    GROUP_INFECTED = {GROUP.NAME: "Infected", GROUP.WEIGHT: 0.2,
+    GROUP_INFECTED = {GROUP.NAME: "Infected", GROUP.WEIGHT: 0.2, GROUP.DAILYPOOPS: 1,
                       GROUP.CONSTITUENTS: [CONST_FECAL, CONST_COV], GROUP.PATTERN: PATTERN_BRISTOL}
 
     ENVIRONMENT = {
@@ -82,6 +82,18 @@ class Environment:
         # standardize patterns in groups
         for group in self.information.get(GROUP.GROUPS):
             group[GROUP.PATTERN] = self._standardize_pattern(group.get(GROUP.PATTERN))
+        
+    def add_graph(self, graph):
+        """
+        Stores graph data within the environment
+        Args:
+            graph (DirectedTree: graph, swmm-model
+
+        Returns:
+            None
+        """
+        self.graph = graph
+        return None
 
     def _standardize_pattern(self, pattern):
         """
@@ -124,7 +136,7 @@ class Environment:
                   PACKET.ORIGIN: node}
         return packet
 
-    def get_packets(self, population):
+    def get_packets(self, population=None):
         """
         Returns a dictionary with number of packets of the given environment.
         A pool of individuals is created by creating a list with the node-strings in it, as often as there are people at
@@ -137,28 +149,38 @@ class Environment:
         Returns:
             dict
         """
-        # create each individual in environment as a string in order to pick randomly later
+        if population is None:
+            population = [(node, valdict.get("POP",0)) for node, valdict in self.graph.adjls.items()]
+        # create a list of strings (node-names) were each string represens an individual in the environment.
+        # From the list, individuals are drawn at random later
         people = []
-        for node in population:
-            people += node[0] * node[1]
-        random.shuffle(people)  # shuffle list of people
-        pop_tot = len(people)
+        ls_nodes = [node[0] for node in population] #list of nodes in graph
+        ls_pop = [node[1] for node in population] #list of populations in graph
+        pop_tot = sum(ls_pop)
 
-        weights_tot = sum(group.get(GROUP.WEIGHT) for group in
-                          self.information.get(GROUP.GROUPS))  # calculate sum of weights of groups
-        packets = {}  # prepare dictionary for packets
-        j = 0  # counter for packets
-        for group in self.information.get(GROUP.GROUPS):
-            n = int(np.around(group.get(GROUP.WEIGHT) * pop_tot / weights_tot, 0))  # calculate number of people to pick
-            picks = people[j: j + n]  # slice the chunk of people
+        # calculate sum of weights of groups
+        grp_weights_tot = sum(group.get(GROUP.WEIGHT) for group in self.information.get(GROUP.GROUPS))
+
+        #prepare lists for packet attributes
+        arr_t0s = [] #prepare list arrival times
+        arr_class = [] #prepare list of classifications
+        arr_contents = [] #prepare list of contents
+        arr_nodes = [] #prepare list of origin nodes
+
+        #assign attributes for each group
+        groups = self.information.get(GROUP.GROUPS)
+        for group in groups:
+            # calculate number of people to pick
             dailypoops = group.get(GROUP.DAILYPOOPS)
-            quotient, rest = (n * dailypoops / n), (
-                    n * dailypoops / n)  # calculate modulo operator to multiply and slice to extend pickinglist
-            # extend picks to make up for extra daily poops from non integer dailypoops
-            picks = picks * quotient + picks[:rest]
-            packets.update({i: self._packet_gen(i, node) for i, node in
-                            zip(range(j, j + n), picks)})  # generate n packets and add to dictionary
-            j += n  # counter for packets
+            number = int(round(dailypoops * group.get(GROUP.WEIGHT) * pop_tot / grp_weights_tot, 0))
+            arr_t0s += random.choices(self.time_range.values, weights=group.get(GROUP.PATTERN), k=number)
+            arr_class += [group.get(GROUP.NAME)] * number
+            arr_contents = [group.get(GROUP.CONSTITUENTS)] * number
+            arr_nodes += random.choices(ls_nodes, weights=ls_pop, k=number)
+        arr_pids = [f"P{i}" for i in range(len(arr_t0s))]  #counter for packets
+
+        packets = pd.DataFrame(data=[arr_pids, arr_class, arr_nodes, arr_t0s, arr_contents],
+                               index=[PACKET.PACKETID, PACKET.CLASSIFICATION, PACKET.ORIGIN, PACKET.T0, PACKET.CONSTITUENTS]).T
         return packets
 
     def read_swmmoutfile(self, outfile_path):
@@ -282,23 +304,21 @@ class DirectedTree:
         else:
             return False
 
-    def add_nodevalues(self, node, values):
-        '''
-        can be used to add several values. Values need to be stored in list:
-        [(field,value),(field,value),...]
-        node: str, node the values are to be added to
-        values: list, list of tuples or list of lists
-        '''
-        if self.adjls.__contains__(node):
-            if type(values) == list:
-                for entry in values:
-                    self.adjls[node][entry[0]] = entry[1]
-            elif type(values) == dict:
-                for key, value in values.items():
-                    self.adjls[node][key] = value
-            return True
-        else:
-            return False
+    def add_nodevalues(self, dictionary):
+        """
+        Takes a dictionary {node: {key: value},...} to add values to nodes
+        Args:
+            dictionary (dict):
+
+        Returns:
+            None
+        """
+        for node, valdict in dictionary.items():
+            try:
+                self.adjls[node].update(valdict)
+            except:
+                print(f"node {node} not found in graph")
+        return None
 
     def add_linkvalue(self, link, field, value):
         if self.links.__contains__(link):
@@ -312,9 +332,13 @@ def test_flows():
     env = Environment()
     env.read_swmmoutfile(r"C:\Users\albert/Documents/SWMMpulse/HS_calib_120_simp.out")
     print("finished reading output file")
-    env.read_swmminpfile(r"C:\Users\albert/Documents/SWMMpulse/HS_calib_120_simp.inp")
-    path_pop_data = r"C:\Users\albert/Documents/SWMMpulse/HS_calib_120_simp/pop_node_data.csv"
+    graph = DirectedTree.from_swmm(r"C:\Users\albert/Documents/SWMMpulse/HS_calib_120_simp.inp")
+    node_data = pd.read_csv(r"C:\Users\albert/Documents/SWMMpulse/HS_calib_120_simp/pop_node_data.csv")
+    node_data = node_data.set_index("NAME").to_dict(orient="index")
+    graph.add_nodevalues(node_data)
+    env.add_graph(graph)
     print("finished reading input file")
+    env.get_packets()
     print("finished testing sequence")
 
 
