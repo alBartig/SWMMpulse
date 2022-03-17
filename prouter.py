@@ -99,10 +99,13 @@ class Router:
         Returns:
             pd.DataFrame
         """
-        columns = self.graph.adjls.keys() #getting nodes for routetable
-        #extracting population-data from graph
-        population = [(node, self.graph.get_nodevalue(node, "POP")) for node in columns]
-        packets = self.environment.get_packets(population) #generate a dictionary with all packets and contents
+        #generate packets from environment
+        packets = self.environment.get_packets().to_dict(orient="index")
+        nodes = [(node["name"], node["shreve"]) for node in self.graph.adjls.values()]
+        nodes.sort(key=lambda x: x[1]) #sort list of nodes by shreve order
+        columns = [] #prepare container for routed packets
+        for column[0] in nodes: #iter
+
 
         for packet in packets.values(): #iterate through packets in packets-dictionary
             stops = self._route_packet(packet) #calculate path for packet
