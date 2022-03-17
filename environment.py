@@ -327,6 +327,70 @@ class DirectedTree:
         else:
             return False
 
+    def check_node(self,node):
+        if self.adjls.__contains__(node):
+            return True
+        else:
+            return False
+
+    def get_inletnodes(self,node):
+        if self.check_node(node):
+            inlets = self.adjls[node]['inlets']
+            inletnodes = [inlet[0] for inlet in inlets]
+            return inletnodes
+        else:
+            return False
+
+    def get_nodevalue(self, node, value):
+        if self.adjls.__contains__(node):
+            if self.adjls[node].get(value) != None:
+                return self.adjls[node].get(value)
+            else:
+                return False
+        else:
+            return False
+
+    def get_nodeindex(self, node):
+        return self.adjls[node]['nodeindex']
+    
+    def order_shreve(self):
+        """
+        assigns Shreve order values to graph-nodes
+        Returns:
+            None
+        """
+        import numpy as np
+
+        def dfs(junction,value,target):
+            #import list of visited nodes
+            nonlocal visited
+            #prepare array for upstream acc_values
+            upstream_values = []
+
+            for node in self.get_inletnodes(junction):
+                at = self.get_nodeindex(node)
+                if visited[at] != True:
+                    visited[at] = True
+                    dfs(node,value,target)
+                    upstream_values.append(self.get_nodevalue(node,target))
+
+            #Check if node has value assigned
+            try:
+                local_acc = sum(upstream_values)+self.get_nodevalue(junction,value)
+            except:
+                local_acc = sum(upstream_values)
+
+            self.add_nodevalue(junction,target,local_acc)
+
+        if end is None:
+            end = self.root
+
+        visited = np.zeros(self.nodeindex+1,dtype=bool)
+        #name target field
+        target = "shreve"
+        dfs(end,value,target)
+        return True
+
 
 def test_flows():
     env = Environment()
