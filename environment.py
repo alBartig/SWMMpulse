@@ -262,7 +262,13 @@ class DirectedTree:
                 links[i][3] = ("length", links[i][3])
             except:
                 pass
-        return cls(links)
+        return cls(links)\
+
+    @property
+    def root(self):
+        for node,values in self.adjls.items():
+            if len(values["outlets"]) == 0:
+                return node
 
     def add_link(self, link):
         name = link[0]
@@ -353,43 +359,37 @@ class DirectedTree:
     def get_nodeindex(self, node):
         return self.adjls[node]['nodeindex']
     
-    def order_shreve(self):
+    def order_shreve(self, end=None):
         """
         assigns Shreve order values to graph-nodes
         Returns:
             None
         """
-        import numpy as np
-
-        def dfs(junction,value,target):
+        def dfs(junction):
             #import list of visited nodes
             nonlocal visited
-            #prepare array for upstream acc_values
+            #prepare array for upstream order-values
             upstream_values = []
-
+            #iterate through upstream nodes
             for node in self.get_inletnodes(junction):
-                at = self.get_nodeindex(node)
-                if visited[at] != True:
+                at = self.get_nodeindex(node) #check if node was already visited
+                if visited[at] != True: #if not, visit and cross off list
                     visited[at] = True
-                    dfs(node,value,target)
-                    upstream_values.append(self.get_nodevalue(node,target))
-
+                    dfs(node)
+                    upstream_values.append(self.get_nodevalue(node, "shreve")) #append upstream order to list
             #Check if node has value assigned
-            try:
-                local_acc = sum(upstream_values)+self.get_nodevalue(junction,value)
-            except:
-                local_acc = sum(upstream_values)
-
-            self.add_nodevalue(junction,target,local_acc)
-
+            try: #take maximum of upstream order values and add 1
+                order = max(upstream_values) + 1
+            except: #if there are no upstream order values, order is 0
+                order = 0
+            self.add_nodevalue(junction, "shreve", order) #assign order to node
+            return None
+        #start at root if no other end is specified
         if end is None:
             end = self.root
-
-        visited = np.zeros(self.nodeindex+1,dtype=bool)
-        #name target field
-        target = "shreve"
-        dfs(end,value,target)
-        return True
+        visited = np.zeros(self.nodeindex+1,dtype=bool) #prepare list to keep track of visited nodes
+        dfs(end) #start dfs
+        return None
 
 
 def test_flows():
