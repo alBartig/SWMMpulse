@@ -87,7 +87,7 @@ class Environment:
         """
         Stores graph data within the environment
         Args:
-            graph (DirectedTree: graph, swmm-model
+            graph (DirectedTree): graph, swmm-model
 
         Returns:
             None
@@ -147,7 +147,7 @@ class Environment:
             population (list): list of tuples (node, population)
 
         Returns:
-            dict
+            pd.DataFrame
         """
         if population is None:
             population = [(node, valdict.get("POP",0)) for node, valdict in self.graph.adjls.items()]
@@ -347,6 +347,10 @@ class DirectedTree:
         else:
             return False
 
+    def get_outlets(self,node):
+        onode, olink = self.adjls.get(node).get("outlets")[0]
+        return onode, olink
+
     def get_nodevalue(self, node, value):
         if self.adjls.__contains__(node):
             if self.adjls[node].get(value) != None:
@@ -355,6 +359,9 @@ class DirectedTree:
                 return False
         else:
             return False
+
+    def get_linkvalue(self, link, value):
+        return self.links.get(link, {}).get(value, np.nan)
 
     def get_nodeindex(self, node):
         return self.adjls[node]['nodeindex']

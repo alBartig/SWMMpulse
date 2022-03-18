@@ -5,7 +5,7 @@ import create_loadings
 from pconstants import Discretization, Loading
 import datetime
 from swmm_api import read_out_file
-from environment import Environment, PACKET, CONSTITUENT
+from environment import Environment, PACKET, CONSTITUENT, DirectedTree
 from tqdm import tqdm
 import pickle
 from Exceptions import RoutingError, PlausibilityError
@@ -18,30 +18,6 @@ class Router:
     def __init__(self):
         pass
 
-    def add_flows(self, qlookup):
-        """
-        Adds a hydraulic lookup table to the router
-        Args:
-            qlookup: hydraulic lookup table
-
-        Returns:
-            None
-        """
-        self.flows = qlookup
-        return None
-
-    def add_sewer(self, graph):
-        """
-        Adds a graph containing the node data and the population data to the router
-        Args:
-            graph (DirectedTree): sewer network as graph
-
-        Returns:
-            None
-        """
-        self.graph = graph
-        return None
-
     def add_environment(self, env):
         """
         Adds environment to the router
@@ -52,7 +28,6 @@ class Router:
             None
         """
         self.environment = env
-        self.datetimeindex = pd.date_range(env.get("date"), periods=8640, freq="10S")
         return None
 
     def _route_packet(self, packet):
@@ -100,11 +75,23 @@ class Router:
             pd.DataFrame
         """
         #generate packets from environment
-        packets = self.environment.get_packets().to_dict(orient="index")
-        nodes = [(node["name"], node["shreve"]) for node in self.graph.adjls.values()]
+        packets = self.environment.get_packets()
+        #order graph
+        self.environment.graph.order_shreve()
+        nodes = [(name, values["shreve"]) for name, values in self.environment.graph.adjls.items()]
         nodes.sort(key=lambda x: x[1]) #sort list of nodes by shreve order
-        columns = [] #prepare container for routed packets
-        for column[0] in nodes: #iter
+        columns = {node[0]:{} for node in nodes} #prepare container for routed packets
+        for node in nodes: #iterate through columns
+            #load packets that originate from node into column
+            columns[node].update(packets.loc[packets[PACKET.ORIGIN] == node[0]].
+                                 set_index(PACKET.PACKETID)[PACKET.T0].to_dict())
+            onode, olink = self.environment.graph.get_outlets(node[0])
+            distance = self.environment.graph.get_linkvalue(olink, gc.LENGTH)
+            starttimes = [time for time in columns[node].values()]
+            packetids = [key for key in columns[node].keys()]
+            velocities = self.environment.flow_velocities.get(node[0])[starttimes]
+            endtimes = starttimes + np.rint(distance / velocities)
+            columns[onode].update({packetid: endtime for packetid, endtime in zip(packetids, endtimes)})
 
 
         for packet in packets.values(): #iterate through packets in packets-dictionary
@@ -509,10 +496,31 @@ def preparation():
     graph = ntwk.from_directory(gpath)
     return qlut, graph
 
+def preparations():
+    print(f"Preparing environment")
+    env = Environment()
+    print(f"Reading swmm-outfile")
+    env.read_swmmoutfile(r"C:\Users\albert/Documents/SWMMpulse/HS_calib_120_simp.out")
+    print(f"Preparing graph")
+    graph = DirectedTree.from_swmm(r"C:\Users\albert/Documents/SWMMpulse/HS_calib_120_simp.inp")
+    node_data = pd.read_csv(r"C:\Users\albert/Documents/SWMMpulse/HS_calib_120_simp/pop_node_data.csv")
+    node_data = node_data.set_index("NAME").to_dict(orient="index")
+    graph.add_nodevalues(node_data)
+    env.add_graph(graph)
+    print(f"finished preparing environment\npreparing router")
+    router = Router()
+    router.add_environment(env)
+    print(f"finished preparing router")
+    return router
+
+def testing():
+    router = preparations()
+    print(f"beginning router testing")
+    router.route()
+    print(f"finished router testing")
+
 def main():
-    qlut, graph = preparation()
-    test_routing(qlut,graph,True)
-    test_postprocessing(qlut, graph, load=True)
+    testing()
 
 if __name__ == '__main__':
     main()
