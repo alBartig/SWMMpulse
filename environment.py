@@ -3,6 +3,8 @@ import numpy as np
 import random
 import pandas as pd
 from swmm_api import read_out_file
+from swmm_api.output_file import VARIABLES as swmm_vars
+from swmm_api.output_file import OBJECTS as swmm_objs
 
 
 class UNITS:
@@ -44,6 +46,11 @@ class GROUP:
     CONSTITUENTS = "constituents"
     PATTERN = "pattern"
 
+class HYDRAULICS:
+    MINFLOW = 1.0 #l/s
+    MINVELOCITY = 0.1 #m/s
+    LENGTH = "length"
+
 
 class DEFAULT:
     CONST_FECAL = {CONSTITUENT.NAME: CONSTITUENT.FECAL, CONSTITUENT.SPECIFIC_LOAD: 200,
@@ -78,7 +85,8 @@ class Environment:
         if information is None:
             information = DEFAULT.ENVIRONMENT
         self.information = information
-        self.time_range = pd.date_range(information.get(UNITS.DATE), periods=24 * 60 * 6, freq="10S")
+        #self.time_range = pd.date_range(information.get(UNITS.DATE), periods=24 * 60 * 6, freq="10S")
+        self.time_range = np.arange(0,8640) #instead of timestamps, times will be given in 10S steps
         # standardize patterns in groups
         for group in self.information.get(GROUP.GROUPS):
             group[GROUP.PATTERN] = self._standardize_pattern(group.get(GROUP.PATTERN))
@@ -173,7 +181,7 @@ class Environment:
             # calculate number of people to pick
             dailypoops = group.get(GROUP.DAILYPOOPS)
             number = int(round(dailypoops * group.get(GROUP.WEIGHT) * pop_tot / grp_weights_tot, 0))
-            arr_t0s += random.choices(self.time_range.values, weights=group.get(GROUP.PATTERN), k=number)
+            arr_t0s += random.choices(self.time_range, weights=group.get(GROUP.PATTERN), k=number)
             arr_class += [group.get(GROUP.NAME)] * number
             arr_contents = [group.get(GROUP.CONSTITUENTS)] * number
             arr_nodes += random.choices(ls_nodes, weights=ls_pop, k=number)
@@ -194,8 +202,8 @@ class Environment:
         """
         with read_out_file(outfile_path) as out:
             # import outfile as dataframe
-            df = out.to_frame()
-            df = df.loc[:, ("link", slice(None), ["flow", "velocity"])].droplevel(0, axis=1)
+            df = out.get_part(kind=swmm_objs.LINK, variable=[swmm_vars.LINK.FLOW, swmm_vars.LINK.VELOCITY])
+            #df = df.loc[:, (swmm_objs.LINK, slice(None), [swmm_vars.LINK.FLOW, swmm_vars.LINK.VELOCITY])].droplevel(0, axis=1)
             # reindex and interpolate dataframe
             _date = df.index[0].date()
             _dtindex = pd.date_range(_date, periods=8641, freq="10S")
@@ -205,9 +213,17 @@ class Environment:
             df.drop(df.index[-1], inplace=True)
             date = self.information.get(UNITS.DATE)
             df.index = df.index.map(lambda d: d.replace(year=date.year, month=date.month, day=date.day))
-            self.flow_rates = df.xs("flow", axis=1, level=1).to_dict(orient="list")
-            self.flow_velocities = df.xs("velocity", axis=1, level=1).to_dict(orient="list")
+            self.flow_rates = df.xs(swmm_vars.LINK.FLOW, axis=1, level=1).replace(0,HYDRAULICS.MINFLOW).to_dict(orient="list")
+            self._lists_to_array(self.flow_rates)
+            self.flow_velocities = df.xs(swmm_vars.LINK.VELOCITY, axis=1, level=1).replace(0,HYDRAULICS.MINVELOCITY).\
+                to_dict(orient="list")
+            self._lists_to_array(self.flow_velocities)
             self.TIMESTEPS = len(df.index)
+        return None
+
+    def _lists_to_array(self, dic):
+        for key, arr in dic.items():
+            dic[key] = np.array(arr)
         return None
 
     def _calc_index(self, time):

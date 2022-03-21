@@ -1,11 +1,11 @@
 #import geopandas
-from network_lib import DirectedTree as ntwk, GraphConstants as gc
+#from network_lib import DirectedTree as ntwk, GraphConstants as gc
 from timeseries import QSeries, TSeries, TDict
 import create_loadings
 from pconstants import Discretization, Loading
 import datetime
 from swmm_api import read_out_file
-from environment import Environment, PACKET, CONSTITUENT, DirectedTree
+from environment import Environment, PACKET, CONSTITUENT, DirectedTree, HYDRAULICS
 from tqdm import tqdm
 import pickle
 from Exceptions import RoutingError, PlausibilityError
@@ -67,39 +67,40 @@ class Router:
                     raise RoutingError(packet, stops)
         return stops
 
-    def route(self):
+    def route(self, as_dataframe=False):
         """
         Create routetable.
         Prepare input data ahead with: add_flow(), add_graph(), add_environment()
         Returns:
-            pd.DataFrame
+            dict
         """
         #generate packets from environment
         packets = self.environment.get_packets()
         #order graph
         self.environment.graph.order_shreve()
-        nodes = [(name, values["shreve"]) for name, values in self.environment.graph.adjls.items()]
+        nodes = [(name, values["shreve"], values["outlets"]) for name, values in self.environment.graph.adjls.items()]
         nodes.sort(key=lambda x: x[1]) #sort list of nodes by shreve order
         columns = {node[0]:{} for node in nodes} #prepare container for routed packets
-        for node in nodes: #iterate through columns
+        for node in nodes[:-1]: #iterate through columns until last column
             #load packets that originate from node into column
-            columns[node].update(packets.loc[packets[PACKET.ORIGIN] == node[0]].
-                                 set_index(PACKET.PACKETID)[PACKET.T0].to_dict())
-            onode, olink = self.environment.graph.get_outlets(node[0])
-            distance = self.environment.graph.get_linkvalue(olink, gc.LENGTH)
-            starttimes = [time for time in columns[node].values()]
-            packetids = [key for key in columns[node].keys()]
-            velocities = self.environment.flow_velocities.get(node[0])[starttimes]
-            endtimes = starttimes + np.rint(distance / velocities)
+            node, onode, olink = node[0], node[2][0][0], node[2][0][1] #node=current node, onode=next node, olink=next link
+            columns[node].update(packets.loc[packets[PACKET.ORIGIN] == node].
+                                 set_index(PACKET.PACKETID)[PACKET.T0].to_dict()) #load packets originating from current node
+            distance = self.environment.graph.get_linkvalue(olink, HYDRAULICS.LENGTH) #get distance for link
+            starttimes = list(columns[node].values()) #get starttimes from current node
+            packetids = list(columns[node].keys()) #get packetids from current node
+            #get velocities for outlet link by using starttimes as indexes. Round starttimes and take modulo 8640
+            velocities = self.environment.flow_velocities.get(olink)[np.rint(starttimes).astype(int) % 8640]
+            #calculate arrival times at next node by adding distance/velocity/10s
+            endtimes = starttimes + distance / velocities / 10
+            #endtimes = (starttimes + np.rint(distance / velocities).astype("int")) % 8640
             columns[onode].update({packetid: endtime for packetid, endtime in zip(packetids, endtimes)})
 
-
-        for packet in packets.values(): #iterate through packets in packets-dictionary
-            stops = self._route_packet(packet) #calculate path for packet
-            packet.update({stop: time for stop, time in stops}) #update dictionary
-
-        routetable = pd.DataFrame.from_dict(packets, orient="index") #generate DataFrame from packets-dictionary
-        return routetable
+        if as_dataframe:
+            routetable = pd.DataFrame.from_dict(columns) #generate DataFrame from columns-dictionary
+            return routetable
+        else:
+            return columns
 
     def _postprocess_packet(self, packet, constituent, flow_velocities, flow_rates):
         """
@@ -158,19 +159,21 @@ class Router:
 
         return timeseries
 
-    def postprocess(self, node, constituent, routetable):
+    def postprocess(self,  constituent, routetable, node=None):
         """
         Creates a timeseries-table pd.DataFrame from a given routetable for a given node and constituent.
         The DataFrame contains a  column for each packet routed with numerical values for timesteps
         that contain the constituent and np.NaN values for timesteps that don't.
         Args:
-            node (str): name of the node for which to create the timeseries
             constituent (str): name of the constituent for which to create the timeseries
             routetable (pd.DataFrame): routetable DataFrame, returned from self.route()
+            node (str): name of the node for which to create the timeseries
 
         Returns:
             pd.DataFrame
         """
+        if node is None:
+            node = self.environment.graph.root
         #slice the routetable dataframe to the relevant columns and select only rows that contain the constituent
         packet_data = routetable.loc[routetable[PACKET.CONSTITUENTS].apply(lambda l: constituent in l),
                                       [PACKET.PACKETID, PACKET.CLASSIFICATION, PACKET.ORIGIN,
@@ -514,9 +517,14 @@ def preparations():
     return router
 
 def testing():
+    import time
     router = preparations()
     print(f"beginning router testing")
-    router.route()
+    start = time.time()
+    routetable = router.route()
+    print(f"time for routing: {time.time()-start} seconds")
+    print(f"testing postprocessing")
+    router.postprocess()
     print(f"finished router testing")
 
 def main():
