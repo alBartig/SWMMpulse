@@ -5,7 +5,7 @@ import create_loadings
 from pconstants import Discretization, Loading
 import datetime
 from swmm_api import read_out_file
-from environment import Environment, PACKET, CONSTITUENT, DirectedTree, HYDRAULICS
+from environment import Environment, PACKET, CONSTITUENT, DirectedTree, HYDRAULICS, GROUP
 from tqdm import tqdm
 import pickle
 from Exceptions import RoutingError, PlausibilityError
@@ -67,15 +67,16 @@ class Router:
                     raise RoutingError(packet, stops)
         return stops
 
-    def route(self, as_dataframe=False):
+    def route(self, packets=None, as_dataframe=False):
         """
         Create routetable.
         Prepare input data ahead with: add_flow(), add_graph(), add_environment()
         Returns:
             dict
         """
-        #generate packets from environment
-        packets = self.environment.get_packets()
+        if packets is None:
+            #generate packets from environment
+            packets = self.environment.get_packets()
         #order graph
         self.environment.graph.order_shreve()
         nodes = [(name, values["shreve"], values["outlets"]) for name, values in self.environment.graph.adjls.items()]
@@ -120,7 +121,7 @@ class Router:
         #calculate reduced load
         load_0 = self.environment.constituents.get(constituent).get(CONSTITUENT.SPECIFIC_LOAD)
         decay_rate = self.environment.constituents.get(constituent).get(CONSTITUENT.DECAY_RATE)
-        load_reduced = load_0 * np.e ** (decay_rate * age / 86400)
+        load_reduced = load_0 * np.e ** (-decay_rate * age / 86400)
         fractions = self.environment.constituents.get(constituent).get(CONSTITUENT.FRACTIONS)
         flow_velocity = flow_velocities[i0] #lookup flow velocity
         flow_rate = flow_rates[i0]
@@ -159,13 +160,72 @@ class Router:
 
         return timeseries
 
-    def postprocess(self,  constituent, routetable, node=None):
+    def _process_packet(self, packet):
+        t, tm, dxleft, dxright, borderleft, borderright, peaks_fracts, dcleft, dcright = packet
+        # print(t.shape)
+        for fraction in zip(t, tm, dxleft, dxright, borderleft, borderright, peaks_fracts, dcleft, dcright):
+            self._process_fraction(fraction)
+        # print(f"Paketsumme: {np.sum(t)}")
+        return None
+
+    def _process_fraction(self, fraction):
+        x, tm, dxleft, dxright, borderleft, borderright, peak, dcleft, dcright = fraction
+        try:
+            x[borderleft:tm] = -dcleft * abs(np.arange(borderleft - tm, 0)) + peak
+        except:
+            print(f"{borderleft} : {tm}\n",
+                  f"{tm - borderleft} : 0")
+            x[borderleft:tm] = -dcleft * abs(np.arange(borderleft - tm, 0)) + peak
+        try:
+            x[tm:borderright] = -dcright * abs(np.arange(0, borderright - tm)) + peak
+        except:
+            print(f"{tm} : {borderright}\n",
+                  f"{borderright - tm} : 0")
+            x[tm:borderright] = -dcright * abs(np.arange(0, borderright - tm)) + peak
+        # print(f"Fraktionssumme: {sum(x)}")
+        return x
+
+    def _postprocess(self, routetable, constituent):
+        """
+        Postprocesses routetable to get timeseries of constituent
+        Args:
+            routetable (dict):
+            constituent (dict):
+
+        Returns:
+            dict
+        """
+
+        t = np.zeros([len(tm), len(fractions), 8640 * 3])
+        tm = np.rint(df_post["tm"].values % 8640).astype(int) + 8640
+        tmfracts = np.repeat([tm], len(fractions), axis=0)
+
+        dxleft = np.repeat([two_sd_s], len(fractions), axis=0).T
+        dxright = np.repeat([two_sd_s], len(fractions), axis=0).T * skewedness
+        borderleft = np.floor(np.repeat([tm], len(fractions), axis=0) - dxleft.T)
+        borderright = np.ceil(np.repeat([tm], len(fractions), axis=0) + dxright.T)
+
+        load_red = df_post["l_red"].values
+        load_fracts = np.repeat([load_red], len(fractions), axis=0).T * fractions
+        peaks_fracts = ((2 * load_fracts).T / two_sd_s).T / (
+                    (skewedness + 1) * np.repeat([two_sd_s], len(fractions), axis=0).T)
+
+        dcleft = peaks_fracts / dxleft
+        dcright = peaks_fracts / dxright
+
+        for i, packet in enumerate(zip(t, tmfracts.T, dxleft, dxright, borderleft.T, borderright.T,
+                                       peaks_fracts, dcleft, dcright)):
+            _process_packet(packet)
+
+        return t
+
+    def postprocess(self,  constituent, routetable, packets, node=None):
         """
         Creates a timeseries-table pd.DataFrame from a given routetable for a given node and constituent.
         The DataFrame contains a  column for each packet routed with numerical values for timesteps
         that contain the constituent and np.NaN values for timesteps that don't.
         Args:
-            constituent (str): name of the constituent for which to create the timeseries
+            constituent (dict): dict of the constituent for which to create the timeseries
             routetable (pd.DataFrame): routetable DataFrame, returned from self.route()
             node (str): name of the node for which to create the timeseries
 
@@ -174,6 +234,38 @@ class Router:
         """
         if node is None:
             node = self.environment.graph.root
+            link = self.environment.graph.get_inletlinks(node)
+        else:
+            link = self.environment.graph.get_outlets(node)[0][1]
+
+        # unpack constituent parameters ------------------------------------------------------
+        fractions = constituent.get(CONSTITUENT.FRACTIONS)
+        skewedness = constituent.get(CONSTITUENT.SKEWEDNESS)
+        decay_rate = constituent.get(CONSTITUENT.DECAY_RATE) #decay-rate in 1/d
+        specific_load = constituent.get(CONSTITUENT.SPECIFIC_LOAD)
+        groups = constituent.get(GROUP.GROUPS)
+        dispersion_rate = self.environment.information.get(HYDRAULICS.DISPERSION_RATE)
+
+        # prepare dataframe for postprocessing
+        df_post = packets.loc[packets["classification"].isin(groups)].set_index("pid")
+        df_post["tm"] = pd.Series(routetable[self.environment.graph.root])
+
+        # calculate additional values for packets
+        df_post["age"] = (df_post["tm"] - df_post["t0"]) * 10 #age of packets in seconds
+        df_post["load"] = specific_load * np.e ** (-decay_rate * df_post["age"] / 86400) #reduced load
+        df_post["2sd_m"] = 2 * (2 * dispersion_rate * df_post["age"]) ** 0.5
+        df_post["flow_velocity"] = pd.Series(self.environment.flow_velocities
+                                             .get(link)[df_post["tm"].round(0).values.astype(int)], name="v")
+        df_post["2sd_s"] = df_post["2sd_m"] / df_post["flow_velocity"] / 10 # two standard devitions in 10s steps
+
+        #prepare numpy arrays for calculation
+        dxleft = np.repeat([df_post["2sd_s"].ceil.values], len(fractions), axis=0).T
+        dxright = np.repeat([two_sd_s], len(fractions), axis=0).T * skewedness
+        borderleft = np.floor(np.repeat([tm], len(fractions), axis=0) - dxleft.T)
+        borderright = np.ceil(np.repeat([tm], len(fractions), axis=0) + dxright.T)
+
+
+
         #slice the routetable dataframe to the relevant columns and select only rows that contain the constituent
         packet_data = routetable.loc[routetable[PACKET.CONSTITUENTS].apply(lambda l: constituent in l),
                                       [PACKET.PACKETID, PACKET.CLASSIFICATION, PACKET.ORIGIN,

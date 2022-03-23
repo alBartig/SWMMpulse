@@ -36,6 +36,8 @@ class CONSTITUENT:
     FECAL = 'Fecal-Matter'
     COV = 'Cov-RNA'
     PEP = 'Pepper-virus'
+    FRACTIONS = "fractions"
+    SKEWEDNESS = "skewedness"
 
 
 class GROUP:
@@ -45,20 +47,29 @@ class GROUP:
     WEIGHT = "weight"
     CONSTITUENTS = "constituents"
     PATTERN = "pattern"
+    HEALTHY = "healthy"
+    INFECTED = "infected"
+
 
 class HYDRAULICS:
     MINFLOW = 1.0 #l/s
     MINVELOCITY = 0.1 #m/s
     LENGTH = "length"
+    DISPERSION_RATE = "dispersion_rate"
 
 
 class DEFAULT:
     CONST_FECAL = {CONSTITUENT.NAME: CONSTITUENT.FECAL, CONSTITUENT.SPECIFIC_LOAD: 200,
-                   UNITS.UNIT: UNITS.GRAM, CONSTITUENT.DECAY_RATE: 0.114}
-    CONST_COV = {CONSTITUENT.NAME: CONSTITUENT.COV, CONSTITUENT.SPECIFIC_LOAD: 1000, UNITS.UNIT: UNITS.COUNT}
-    CONST_PEP = {CONSTITUENT.NAME: CONSTITUENT.PEP, CONSTITUENT.SPECIFIC_LOAD: 1000, UNITS.UNIT: UNITS.COUNT}
+                   UNITS.UNIT: UNITS.GRAM, CONSTITUENT.DECAY_RATE: 0.0}
 
-    DEFAULT_CONSTITUENTS = [CONST_FECAL, CONST_COV]
+    CONST_COV = {CONSTITUENT.NAME: CONSTITUENT.COV, CONSTITUENT.SPECIFIC_LOAD: 1000,
+                 UNITS.UNIT: UNITS.COUNT, CONSTITUENT.DECAY_RATE: 0.114, GROUP.GROUPS: [GROUP.INFECTED, GROUP.HEALTHY],
+                 CONSTITUENT.FRACTIONS:np.array([0.5,0.5]), CONSTITUENT.SKEWEDNESS:np.array([[1, 1],[1, 7]])}
+
+    CONST_PEP = {CONSTITUENT.NAME: CONSTITUENT.PEP, CONSTITUENT.SPECIFIC_LOAD: 1000,
+                 UNITS.UNIT: UNITS.COUNT, CONSTITUENT.DECAY_RATE: 0.0, GROUP.GROUPS: [GROUP.INFECTED, GROUP.HEALTHY]}
+
+    DEFAULT_CONSTITUENTS = {CONSTITUENT.FECAL: CONST_FECAL, CONSTITUENT.COV: CONST_COV}
 
     PATTERN_BRISTOL_MEN = [1.4, 0.3, 0.1, 0.0, 0.3, 1.7, 9.1, 21, 13, 9, 6.9, 4.9, 1.9, 3.6, 2.5, 2, 2.9, 2.3, 4.1, 4.0,
                            2.7,
@@ -68,9 +79,9 @@ class DEFAULT:
                              3.3, 2.1, 1.5, 2.0, 1.2]
     PATTERN_BRISTOL = [round((w * 0.5 + v * 0.5), 3) for w, v in zip(PATTERN_BRISTOL_MEN, PATTERN_BRISTOL_WOMEN)]
 
-    GROUP_HEALTHY = {GROUP.NAME: "Healthy", GROUP.WEIGHT: 0.8, GROUP.DAILYPOOPS: 1,
+    GROUP_HEALTHY = {GROUP.NAME: GROUP.HEALTHY, GROUP.WEIGHT: 0.8, GROUP.DAILYPOOPS: 1,
                      GROUP.CONSTITUENTS: [CONST_FECAL], GROUP.PATTERN: PATTERN_BRISTOL}
-    GROUP_INFECTED = {GROUP.NAME: "Infected", GROUP.WEIGHT: 0.2, GROUP.DAILYPOOPS: 1,
+    GROUP_INFECTED = {GROUP.NAME: GROUP.INFECTED, GROUP.WEIGHT: 0.2, GROUP.DAILYPOOPS: 1,
                       GROUP.CONSTITUENTS: [CONST_FECAL, CONST_COV], GROUP.PATTERN: PATTERN_BRISTOL}
 
     ENVIRONMENT = {
@@ -87,6 +98,7 @@ class Environment:
         self.information = information
         #self.time_range = pd.date_range(information.get(UNITS.DATE), periods=24 * 60 * 6, freq="10S")
         self.time_range = np.arange(0,8640) #instead of timestamps, times will be given in 10S steps
+        self.constituents = DEFAULT.DEFAULT_CONSTITUENTS
         # standardize patterns in groups
         for group in self.information.get(GROUP.GROUPS):
             group[GROUP.PATTERN] = self._standardize_pattern(group.get(GROUP.PATTERN))
@@ -360,6 +372,14 @@ class DirectedTree:
             inlets = self.adjls[node]['inlets']
             inletnodes = [inlet[0] for inlet in inlets]
             return inletnodes
+        else:
+            return False
+
+    def get_inletlinks(self,node):
+        if self.check_node(node):
+            inlets = self.adjls[node]['inlets']
+            inletlinks = [inlet[1] for inlet in inlets]
+            return inletlinks
         else:
             return False
 
