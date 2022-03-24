@@ -1,18 +1,8 @@
-#import geopandas
-#from network_lib import DirectedTree as ntwk, GraphConstants as gc
-from timeseries import QSeries, TSeries, TDict
-import create_loadings
-from pconstants import Discretization, Loading
 import datetime
-from swmm_api import read_out_file
-from environment import Environment, PACKET, CONSTITUENT, DirectedTree, HYDRAULICS, GROUP
-from tqdm import tqdm
-import pickle
+from environment import Environment, PACKET, CONSTITUENT, DirectedTree, HYDRAULICS, GROUP, DEFAULT
 from Exceptions import RoutingError, PlausibilityError
 import pandas as pd
 import numpy as np
-import os
-from copy import copy, deepcopy
 
 class Router:
     def __init__(self):
@@ -103,69 +93,82 @@ class Router:
         else:
             return columns
 
-    def _postprocess_packet(self, packet, constituent, flow_velocities, flow_rates):
+    def postprocess(self, routetable, packets, constituent, node=None, as_df=False):
         """
-        Calculates timeseries from packet
+        Creates a timeseries-table pd.DataFrame from a given routetable for a given node and constituent.
+        The DataFrame contains a  column for each packet routed with numerical values for timesteps
+        that contain the constituent and np.NaN values for timesteps that don't.
         Args:
-            packet (dict): packetdictionary, containing packetmetadata
+            constituent (dict): dict of the constituent for which to create the timeseries
+            routetable (pd.DataFrame): routetable DataFrame, returned from self.route()
+            node (str): name of the node for which to create the timeseries
 
         Returns:
-            dict
+            pd.DataFrame
         """
-        age = packet.get(PACKET.AGE)
-        tm = self.flows.norm_time(packet.get(PACKET.ARRIVAL_TIME)) #load arrival time and shift to a reference time
-        i0 = self.environment._calc_index(tm)
-        #prepare empty timeseries
-        timeseries = np.zeros(len(self.datetimeindex))
+        if node is None:
+            node = self.environment.graph.root
+            link = self.environment.graph.get_inletlinks(node)[0]
+        else:
+            link = self.environment.graph.get_outlets(node)[0][1]
 
-        #calculate reduced load
-        load_0 = self.environment.constituents.get(constituent).get(CONSTITUENT.SPECIFIC_LOAD)
-        decay_rate = self.environment.constituents.get(constituent).get(CONSTITUENT.DECAY_RATE)
-        load_reduced = load_0 * np.e ** (-decay_rate * age / 86400)
-        fractions = self.environment.constituents.get(constituent).get(CONSTITUENT.FRACTIONS)
-        flow_velocity = flow_velocities[i0] #lookup flow velocity
-        flow_rate = flow_rates[i0]
+        # unpack constituent parameters ------------------------------------------------------
+        fractions = constituent.get(CONSTITUENT.FRACTIONS)
+        skewedness = constituent.get(CONSTITUENT.SKEWEDNESS)
+        skewedness_left = [s[0] for s in skewedness]
+        skewedness_right = [s[1] for s in skewedness]
+        decay_rate = constituent.get(CONSTITUENT.DECAY_RATE) #decay-rate in 1/d
+        specific_load = constituent.get(CONSTITUENT.SPECIFIC_LOAD)
+        groups = constituent.get(GROUP.GROUPS)
+        dispersion_rate = self.environment.information.get(HYDRAULICS.DISPERSION_RATE)
 
-        #calculate dispersion-spread
-        #2SD of normal distributed dispersion after Fick; SD = (2*D*t)**0.5
-        #95% of load are within 2SD of the mean
-        two_sd_m = 2 * (2 * self.environment.get(CONSTITUENT.DISPERSION_RATE * age) ** 0.5) #spread in m
-        two_sd_s = two_sd_m / flow_velocity #two standard devitions in s
-        dt = Discretization.TIMESTEPLENGTH.total_seconds()
-        border = max(np.ceil(two_sd_s / dt) * dt, 1) #round up the spread to full timestep
+        # prepare dataframe for postprocessing
+        df_post = packets.loc[packets["classification"].isin(groups)].set_index("pid")
+        df_post["tm"] = pd.Series(routetable[self.environment.graph.root])
+        arr_tm = np.rint(df_post["tm"].values).astype(int) % 8640 + 8640
 
-        series = []
-        for fraction in fractions: #iterate through the different fractions of the constituent
-            fractionized_load = fraction.get(CONSTITUENT.FRACTION) * load_reduced #take part of load of fraction
-            skewedness = fraction.get(CONSTITUENT.SKEWEDNESS) #lookup a skewedness-factor to shift peak or receding limb
-            peak = 2 * fractionized_load / ((skewedness + 1) * border) #calculate peak of load
-            x = np.arange(-border, skewedness * border + dt, dt) #calculate x as array
-            y = np.interp(x, [-border, 0, skewedness * border], [0, peak, 0]) #fill load-array
-            series.append((x,y))
+        # calculate additional values for packets
+        arr_age = (df_post["tm"].values - df_post["t0"].values) * 10# age of packets in seconds
+        arr_load = specific_load * np.e ** (-decay_rate * arr_age / 86400)# reduced load
+        arr_2sd_m = 2 * (2 * dispersion_rate * arr_age) ** 0.5
+        arr_flow_velocity = self.environment.flow_velocities.get(link)[np.rint(arr_tm).astype(int)%8640]
+        # two standard devitions in 10s steps
+        arr_2sd_s = np.repeat([np.ceil(arr_2sd_m / arr_flow_velocity / 10)], len(fractions), axis=0).T
 
-        xmin = min([s[0][0] for s in series])
-        xmax = max([s[0][-1] for s in series])
+        # prepare numpy arrays for calculation
+        arr_dxleft = arr_2sd_s * skewedness_left
+        arr_dxright = arr_2sd_s * skewedness_right
+        arr_borderleft = np.floor(np.repeat([arr_tm], len(fractions), axis=0) - arr_dxleft.T)
+        arr_borderright = np.ceil(np.repeat([arr_tm], len(fractions), axis=0) + arr_dxright.T)
 
-        xcomb = np.round(np.arange(xmin, xmax+dt, dt), 8)
-        ycomb = np.zeros(len(xcomb))
-        for s in series:
-            ycomb[np.nonzero(np.isin(xcomb, np.round(s[0], 8)))] += s[1] #ycomb now contains loads with unit [mass/timestep]
-        ccomb = ycomb / (flow_rate * dt) #calculates the concentration at each timestep [mass/dt seconds] / [l/dt seconds]
+        #calculate fractions
+        arr_load_frctns = np.repeat([arr_load], len(fractions), axis=0).T * fractions
+        arr_peak_frctns = ((2*arr_load_frctns).T / arr_2sd_s.T).T /\
+                          (np.sum(skewedness, axis=0) * arr_2sd_s)
+        arr_dcleft = arr_peak_frctns / arr_dxleft
+        arr_dcright = arr_peak_frctns / arr_dxright
+        arr_tm_frctns = np.repeat([arr_tm], len(fractions), axis=0)
 
-        hr, mn, sk = tm.hour, tm.minute, tm.second #calculate index of tm in timeseries
-        i0 = hr * 360 + mn * 6 + sk
-        insert_index = np.arange(i0-border, i0+skewedness*border) #calculate indices for the entire pulse
-        insert_index = insert_index % len(self.datetimeindex) #shift pulse indices in case it crosses to next date
-        timeseries[insert_index] = ccomb #insert pulse concentrations into big array
+        arr_timeseries = np.zeros([len(df_post), len(fractions), 8640 * 3])# prepare
+        for i, packet in enumerate(zip(arr_timeseries, arr_tm_frctns.T, arr_dxleft, arr_dxright, arr_borderleft.T, arr_borderright.T,
+                                       arr_peak_frctns, arr_dcleft, arr_dcright)):
+            self._process_packet(packet)
 
-        return timeseries
+        arr_timeseries = np.sum(arr_timeseries, axis=1)
+        ts1, ts2, ts3 = np.split(arr_timeseries.T, 3)
+        arr_timeseries = ts1 + ts2 + ts3
+        dic_timeseries = {pid: timeseries for pid, timeseries in zip(df_post.index, arr_timeseries.T)}
+
+        if not as_df:
+            return dic_timeseries
+        else:
+            df = pd.DataFrame(dic_timeseries, index = pd.date_range("2000-01-01", freq="10S", periods=8640))
+            return df
 
     def _process_packet(self, packet):
         t, tm, dxleft, dxright, borderleft, borderright, peaks_fracts, dcleft, dcright = packet
-        # print(t.shape)
         for fraction in zip(t, tm, dxleft, dxright, borderleft, borderright, peaks_fracts, dcleft, dcright):
             self._process_fraction(fraction)
-        # print(f"Paketsumme: {np.sum(t)}")
         return None
 
     def _process_fraction(self, fraction):
@@ -182,416 +185,10 @@ class Router:
             print(f"{tm} : {borderright}\n",
                   f"{borderright - tm} : 0")
             x[tm:borderright] = -dcright * abs(np.arange(0, borderright - tm)) + peak
-        # print(f"Fraktionssumme: {sum(x)}")
         return x
 
-    def _postprocess(self, routetable, constituent):
-        """
-        Postprocesses routetable to get timeseries of constituent
-        Args:
-            routetable (dict):
-            constituent (dict):
 
-        Returns:
-            dict
-        """
-
-        t = np.zeros([len(tm), len(fractions), 8640 * 3])
-        tm = np.rint(df_post["tm"].values % 8640).astype(int) + 8640
-        tmfracts = np.repeat([tm], len(fractions), axis=0)
-
-        dxleft = np.repeat([two_sd_s], len(fractions), axis=0).T
-        dxright = np.repeat([two_sd_s], len(fractions), axis=0).T * skewedness
-        borderleft = np.floor(np.repeat([tm], len(fractions), axis=0) - dxleft.T)
-        borderright = np.ceil(np.repeat([tm], len(fractions), axis=0) + dxright.T)
-
-        load_red = df_post["l_red"].values
-        load_fracts = np.repeat([load_red], len(fractions), axis=0).T * fractions
-        peaks_fracts = ((2 * load_fracts).T / two_sd_s).T / (
-                    (skewedness + 1) * np.repeat([two_sd_s], len(fractions), axis=0).T)
-
-        dcleft = peaks_fracts / dxleft
-        dcright = peaks_fracts / dxright
-
-        for i, packet in enumerate(zip(t, tmfracts.T, dxleft, dxright, borderleft.T, borderright.T,
-                                       peaks_fracts, dcleft, dcright)):
-            _process_packet(packet)
-
-        return t
-
-    def postprocess(self,  constituent, routetable, packets, node=None):
-        """
-        Creates a timeseries-table pd.DataFrame from a given routetable for a given node and constituent.
-        The DataFrame contains a  column for each packet routed with numerical values for timesteps
-        that contain the constituent and np.NaN values for timesteps that don't.
-        Args:
-            constituent (dict): dict of the constituent for which to create the timeseries
-            routetable (pd.DataFrame): routetable DataFrame, returned from self.route()
-            node (str): name of the node for which to create the timeseries
-
-        Returns:
-            pd.DataFrame
-        """
-        if node is None:
-            node = self.environment.graph.root
-            link = self.environment.graph.get_inletlinks(node)
-        else:
-            link = self.environment.graph.get_outlets(node)[0][1]
-
-        # unpack constituent parameters ------------------------------------------------------
-        fractions = constituent.get(CONSTITUENT.FRACTIONS)
-        skewedness = constituent.get(CONSTITUENT.SKEWEDNESS)
-        decay_rate = constituent.get(CONSTITUENT.DECAY_RATE) #decay-rate in 1/d
-        specific_load = constituent.get(CONSTITUENT.SPECIFIC_LOAD)
-        groups = constituent.get(GROUP.GROUPS)
-        dispersion_rate = self.environment.information.get(HYDRAULICS.DISPERSION_RATE)
-
-        # prepare dataframe for postprocessing
-        df_post = packets.loc[packets["classification"].isin(groups)].set_index("pid")
-        df_post["tm"] = pd.Series(routetable[self.environment.graph.root])
-
-        # calculate additional values for packets
-        df_post["age"] = (df_post["tm"] - df_post["t0"]) * 10 #age of packets in seconds
-        df_post["load"] = specific_load * np.e ** (-decay_rate * df_post["age"] / 86400) #reduced load
-        df_post["2sd_m"] = 2 * (2 * dispersion_rate * df_post["age"]) ** 0.5
-        df_post["flow_velocity"] = pd.Series(self.environment.flow_velocities
-                                             .get(link)[df_post["tm"].round(0).values.astype(int)], name="v")
-        df_post["2sd_s"] = df_post["2sd_m"] / df_post["flow_velocity"] / 10 # two standard devitions in 10s steps
-
-        #prepare numpy arrays for calculation
-        dxleft = np.repeat([df_post["2sd_s"].ceil.values], len(fractions), axis=0).T
-        dxright = np.repeat([two_sd_s], len(fractions), axis=0).T * skewedness
-        borderleft = np.floor(np.repeat([tm], len(fractions), axis=0) - dxleft.T)
-        borderright = np.ceil(np.repeat([tm], len(fractions), axis=0) + dxright.T)
-
-
-
-        #slice the routetable dataframe to the relevant columns and select only rows that contain the constituent
-        packet_data = routetable.loc[routetable[PACKET.CONSTITUENTS].apply(lambda l: constituent in l),
-                                      [PACKET.PACKETID, PACKET.CLASSIFICATION, PACKET.ORIGIN,
-                                       PACKET.T0, PACKET.CONSTITUENTS, node]]
-        #convert DataFrame to dict:
-        packet_data = packet_data.to_dict(orient="index")
-
-        timeseries_arr = np.zeros([len(packet_data), self.datetimeindex])
-        timeseries_columns = [np.empty(len(packet_data))]
-
-        #prepare flow data / slice flows to relevant link
-        link = self.graph.get_outletlinks(node)
-        flow_velocities = self.environment.flow_velocities.get(link)
-        flow_rates = self.environment.flow_rates.get(link)
-
-        for i, packet in enumerate(packet_data.values()):
-            packet[PACKET.ARRIVAL_TIME] = packet.pop(node)
-            timeseries_arr[i] = self._postprocess_packet(packet, constituent, flow_velocities, flow_rates)
-            timeseries_columns[i] = packet.get(PACKET.PACKETID)
-
-        return pd.DataFrame(timeseries_arr.T, columns=timeseries_columns, index=self.datetimeindex)
-
-
-class PRouter:
-    def __init__(self,graph,qlookup):
-        self.qlookup = qlookup
-        self.graph = graph
-        self.env = Environment()
-
-    def route_packet(self, packet, path):
-        ct = packet.t0
-        stops = [(packet.origin,ct)]
-        for stop in path[1:]:
-            node = stop[0]
-            link = stop[1]
-            #lookup velocity, if v == 0 break routing
-            v,delay = self.qlookup.lookup_v(link, ct)
-            if v is None:
-                break
-            try:
-                td = int(round(self.graph.get_linkvalue(link,gc.LENGTH) / v))
-            except:
-                print(f"Link: {link}, Conduit length: {self.graph.get_linkvalue(link,'LENGTH')}, Velocity: {v}")
-                raise ValueError
-            if td < 0:
-                print('flowtime negative')
-                raise PlausibilityError
-            ct = ct + datetime.timedelta(seconds=td) + delay
-            stops.append((node,ct))
-            #check for plausibility:
-            for stop in stops:
-                if stop[1] < packet.t0:
-                    raise RoutingError(packet, stops)
-        return (packet,stops)
-
-    def route_plist(self,plist, path):
-        return [self.route_packet(p, path) for p in plist]
-
-    def node_plist(self, nname, npop, startid):
-        """
-        Creates packetlist (plist) for node
-        Args:
-            node (dict): {'name':nodename,'population':overall population at node}
-
-        Returns:
-            list: list with pobjects for each group in self.env
-        """
-        plist = []
-        for group in self.env.groups:
-            new_plist = group.plist(nname,npop,self.env.date,startid)
-            startid += len(new_plist)
-            plist += new_plist
-        #print('Packetlist created successfully')
-        return plist
-
-    def node_path(self, node):
-        '''
-        function takes node, generates seedlist via stored community info and returns dictionary with a list of stops
-        and the a list with the routed packets
-        :param node: str, node that is to be simulated
-        :return: dict, {path:list of nodes, packets:list of tuples (packet, list with arrival times)}
-        '''
-        ppath = self.graph.trace_path(node)
-        #print('Path created successfully')
-        return ppath
-
-    def route(self, rtname):
-        '''
-        routes packets from each node and appends them to DataObject Route_Table
-        :return: returns True if successful
-        '''
-        #print('Extracting nodes')
-        nodes = self.graph.nodes
-        route_table = _Route_table(nodes, rtname)
-        startid = 0
-        #print('Creating packets and routing Nodes')
-        for node in nodes:
-        #for node in tqdm(nodes, desc="Routing packets..."):
-            try:
-                pop = int(self.graph.get_nodevalue(node,'POP'))
-            except:
-                pop = 0
-            plist = self.node_plist(node,pop,startid)
-            startid += len(plist)
-            ppath = self.node_path(node)
-            rplist = self.route_plist(plist,ppath)
-            route_table.append_rplist([stop[0] for stop in ppath],rplist)
-        #print(f'Route_Table created. {len(route_table.content)} Packets appended')
-        return route_table
-
-    def to_file(self, fpath):
-        with open(fpath,'wb') as fobj:
-            pickle.dump(self,fobj)
-        print('PRouter Object saved')
-        return True
-
-    @staticmethod
-    def from_file(fpath):
-        with open(fpath,'rb') as fobj:
-            rp = pickle.load(fobj)
-        print('PRouter Object loaded')
-        return rp
-
-class _Route_table:
-    def __init__(self, nodes, name):
-        self.nodes = nodes
-        self.columns = ['packets', *self.nodes]
-        self.size = len(self.columns)
-        self.content = []
-        self.name = name
-
-    def append_rplist(self,path_nodes,rplist):
-        columns = self._find_columns(path_nodes)
-        for routed_packet in rplist:
-            self._append_rpacket(routed_packet, columns=columns)
-
-    def _append_rpacket(self, packet, columns=False):
-        packet, stops = packet[0],packet[1]
-        #checks whether columns to sort values into were already given, if not, columns are generated
-        if columns == False:
-            path = [stop[0] for stop in stops]
-            columns = self._find_columns(path)
-        #array of nan of correct size is generated
-        line = self.size*[np.NaN]
-        #add packet to first field
-        line[0] = packet
-        #fill columns that are being passed
-        try:
-            for i, stop in enumerate(stops):
-                line[columns[i]] = stop[1]
-        except:
-            raise AssertionError
-        self.content.append(line)
-        return True
-
-    def _find_columns(self, path):
-        '''
-        :param path: list, keys to search for in self.columns
-        :return: list, list of indexes of keys given in path
-        '''
-        try:
-            return [self.columns.index(stop) for stop in path]
-        except ValueError:
-            print('Stop not in columns')
-            print(f'Path: {path}')
-            print(f'Columns: {self.columns}')
-            quit
-
-    def _extract_node(self, location, disp):
-        '''
-        :param node: name of the node that is to be passed to postprocessing
-        :return: list, list containing all arriving packets with information in list: (packet, ta) of
-        the packets at this node
-        '''
-        node,link = location[0],location[1]
-        index = self._find_columns((node,))[0]
-        nlist = [copy(row[0]).set_arrival(row[index]) for row in self.content if type(row[index]) != float]
-        [p.set_dispersion(disp) for p in nlist]
-        return {'node':node, 'link':link, 'packets':nlist}
-
-    def to_file(self, fpath):
-        with open(fpath,'wb') as fobj:
-            pickle.dump(self,fobj)
-        print('RTable Object saved')
-        return True
-
-    def to_parquet(self, fpath, compression="brotli"):
-        #import time
-        #extract packets and write to table
-        packets = [r[0].to_list() for r in self.content]
-        #packets = [r[0].to_list() for r in tqdm(self.content, desc="Saving packets...")]
-        dfp = pd.DataFrame(packets, columns=self.content[0][0].tags)
-        dfp.to_parquet(os.path.join(fpath,self.name+"_packets.parquet"), compression=compression)
-
-        #write routetable to table
-        #start = time.time()
-        _content = []
-        for row in self.content:
-            _content.append([row[0],*row[1:]])
-        #print(f"Copied rt-contents: {time.time()-start:.3f} s")
-        for row in _content:
-        #for row in tqdm(_content, desc="Saving routetable..."):
-            row[0] = row[0].pid
-        dfrt = pd.DataFrame(_content, columns=self.columns).set_index("packets").astype("str")
-        dfrt.to_parquet(os.path.join(fpath,self.name+"_routetable.parquet"), compression="brotli")
-        #print('RTable Object saved')
-        return True
-
-    def from_parquet(self, fpath):
-        dfrt = pd.read_parquet(fpath)
-        #dfp =
-
-    @staticmethod
-    def from_file(fpath):
-        with open(fpath,'rb') as fobj:
-            rp = pickle.load(fobj)
-        print('RTable Object loaded')
-        return rp
-
-    def postprocess(self, location, disp):
-        location = [node,graph.get_outletlinks(node)[0]]
-        rt_slice = rtable._extract_node(location,env.dispersion)
-
-class Postprocessing:
-    def __init__(self, extracted_node, qlookup, name):
-        self.node = extracted_node['node']
-        self.link = extracted_node['link']
-        self.packets = extracted_node['packets']
-        self.qlut = qlookup
-        self.name = name
-
-    @classmethod
-    def from_prouter(cls, prouter, node):
-        location = [node,prouter.graph.get_outletlinks(node)[0]]
-        rt_slice = prouter.route_table._extract_node(location,prouter.env.dispersion)
-        return cls(rt_slice, prouter.qlookup)
-
-    @classmethod
-    def from_rtable(cls, rtable, node, qlookup, graph, env=Environment()):
-        location = [node,graph.get_outletlinks(node)[0]]
-        rt_slice = rtable._extract_node(location,env.dispersion)
-        return cls(rt_slice, qlookup, "pproc"+rtable.name.strip("rt"))
-
-    @classmethod
-    def from_file(cls, fpath):
-        with open(fpath,'rb') as fobj:
-            rp = pickle.load(fobj)
-        print(f'PProc Object loaded from: {fpath}')
-        return rp
-
-    def _create_tseries(self, constituent, entry_loc, load=False, name=None):
-        if load is False:
-            #print('processing packets\n')
-            entries = []
-            for packet in self.packets:
-            #for packet in tqdm(self.packets, f"Calculating loads from packets for {constituent}..."):
-                if packet.__contains__(constituent):
-                    entries.append(packet.get_entry(constituent, self.link, self.qlut))
-            # with open(entry_loc, 'wb') as fobj:
-            #     pickle.dump(entries, fobj)
-            #     print('entries saved')
-        else:
-            with open(entry_loc, 'rb') as fobj:
-                entries = pickle.load(fobj)
-                print('entries loaded')
-        tagnames = list(set(entries[0].keys()).difference(["pid","values","timestamps"]))
-        return TSeries(self.qlut.timestamps, entries, tagnames=tagnames, name="_".join([name,constituent]))
-
-    def process_constituent(self, constituent, entry_loc , load=False):
-        ts = self._create_tseries(constituent, entry_loc, load, "ts" + self.name.strip("pproc"))
-        self.__setattr__(constituent, ts)
-        return ts
-
-    def as_conc(self, values):
-        qseries = self.qlut._explode_eid(self.link)
-        try:
-            c = [w/(q*Discretization.TIMESTEPLENGTH.seconds) for q,w in list(zip(qseries,values))]
-        except:
-            pass
-        return c
-
-    def save(self, opath):
-        with open(opath,'wb') as fobj:
-            pickle.dump(self,fobj)
-        print(f'PProc Object saved: {opath}')
-        return True
-
-    def sample_times(self, duration=120, frequency="H"):
-        n = np.floor(duration / 10)
-        starts = pd.date_range(self.timestamps[0], self.timestamps[-1], freq=frequency)
-        slots = []
-        for t in starts:
-            slots += pd.date_range(t, periods=n, freq="10S")
-        return pd.DatetimeIndex(slots)
-
-def test_routing(qlut, graph, save=False):
-    print("Test Routing PRouter")
-    router = PRouter(graph=graph, qlookup=qlut)
-    routetable = router.route()
-    if save:
-        #routetable.to_file('C:/Users/alber/Documents/swmm/swmmpulse/route_tables/routetable.pickle')
-        routetable.to_file('/mnt/c/Users/albert/Documents/SWMMpulse/route_tables/routetable.pickle')
-    print('Finished Test Routing PRouter')
-
-def test_postprocessing(qlut, graph, load=True):
-    print('Test Postprocessing')
-    evalnode = 'MH327-088-1'
-    #routetable = _Route_table.from_file('C:/Users/alber/Documents/swmm/swmmpulse/route_tables/routetable.pickle')
-    routetable = _Route_table.from_file('/mnt/c/Users/albert/Documents/SWMMpulse/route_tables/routetable.pickle')
-    pproc = Postprocessing.from_rtable(routetable, evalnode, qlut, graph)
-
-    #pproc.process_constituent(Loading.FECAL, entry_loc='C:/Users/alber/Documents/swmm/swmmpulse/entries/entries.pickle', load=load)
-    pproc.process_constituent(Loading.FECAL, entry_loc='/mnt/c/Users/albert/Documents/SWMMpulse/entries/entries.pickle', load=load)
-    print("Test postprocessing finished")
-    return pproc
-
-def preparation():
-    lpath = '/mnt/c/Users/albert/Documents/SWMMpulse/HS_calib_120_simp.out'
-    gpath = '/mnt/c/Users/albert/documents/SWMMpulse/HS_calib_120_simp/'
-    #gpath = 'C:/Users/alber/documents/swmm/swmmpulse/HS_calib_120_simp/'
-    #lpath = 'C:/Users/alber/Documents/swmm/swmmpulse/HS_calib_120_simp.out'
-    qlut = QSeries(lpath)
-    graph = ntwk.from_directory(gpath)
-    return qlut, graph
-
-def preparations():
+def preparation_env():
     print(f"Preparing environment")
     env = Environment()
     print(f"Reading swmm-outfile")
@@ -602,21 +199,23 @@ def preparations():
     node_data = node_data.set_index("NAME").to_dict(orient="index")
     graph.add_nodevalues(node_data)
     env.add_graph(graph)
-    print(f"finished preparing environment\npreparing router")
-    router = Router()
-    router.add_environment(env)
-    print(f"finished preparing router")
-    return router
+    print(f"finished preparing environment")
+    return env
 
 def testing():
     import time
-    router = preparations()
+    env = preparation_env()
+    print(f"Preparing router")
+    router = Router()
+    router.add_environment(env)
+    print(f"finished preparing router")
     print(f"beginning router testing")
     start = time.time()
-    routetable = router.route()
+    packets = router.environment.get_packets()
+    routetable = router.route(packets=packets)
     print(f"time for routing: {time.time()-start} seconds")
     print(f"testing postprocessing")
-    router.postprocess()
+    processed = router.postprocess(routetable, packets, DEFAULT.DEFAULT_CONSTITUENTS.get(CONSTITUENT.COV))
     print(f"finished router testing")
 
 def main():
