@@ -116,7 +116,7 @@ class DEFAULT:
 class Environment:
     def __init__(self, information=None):
         LOG_FORMAT = "%(asctime)s %(name)s %(levelname)s  - %(message)s"
-        logging.basicConfig(level=logging.DEBUG,
+        logging.basicConfig(level=logging.WARNING,
                             format=LOG_FORMAT,
                             filemode="w")
         self.env_log = logging.getLogger("Environment")

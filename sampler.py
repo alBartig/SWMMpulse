@@ -1,6 +1,8 @@
 import pandas as pd
 import datetime as dt
 import numpy as np
+from environment import Environment, DirectedTree, PACKET, CONSTITUENT, DirectedTree, HYDRAULICS, GROUP, DEFAULT
+from prouter import Router
 
 strategies = {"A":{"kind":"time",
                    "samplingfreq":f"{1}H",
@@ -87,9 +89,9 @@ class Sampler:
 
     @staticmethod
     def get_sampling_hours(freq):
-        start = dt.datetime.today().date()
-        end = pd.to_datetime(dt.datetime.today()).ceil("D")
-        return pd.date_range(start, end, freq=freq, closed="left")
+        start = dt.date(year=2000, month=1, day=1)
+        hours = float(freq.strip("H"))
+        return pd.date_range(start, periods=24/hours, freq=freq)
 
     @staticmethod
     def get_sampling_times(starttime, duration, interval=10):
@@ -154,31 +156,56 @@ class Sampler:
         sample_concs.rename("concentration", inplace=True)
         return sample_concs
 
+
+def preparations():
+    env = Environment()
+    env.read_swmmoutfile(r"C:\Users\albert/Documents/SWMMpulse/HS_calib_120_simp.out")
+    graph = DirectedTree.from_swmm(r"C:\Users\albert/Documents/SWMMpulse/HS_calib_120_simp.inp")
+    node_data = pd.read_csv(r"C:\Users\albert/Documents/SWMMpulse/HS_calib_120_simp/pop_node_data.csv")
+    node_data = node_data.set_index("NAME").to_dict(orient="index")
+    graph.add_nodevalues(node_data)
+    env.add_graph(graph)
+    router = Router()
+    router.add_environment(env)
+    packets = router.environment.get_packets()
+    routetable = router.route(packets=packets)
+    processed = router.postprocess(routetable, packets, DEFAULT.DEFAULT_CONSTITUENTS.get(CONSTITUENT.COV))
+    return processed
+
+
 def main():
     import matplotlib.pyplot as plt
     ncols = 100
 
+
     # creating test timeseries
-    dtindex = pd.date_range(dt.datetime.today().date(), periods=8640, freq="10S")
+    dtindex = pd.date_range("2000-01-01", periods=8640, freq="10S")
 
     dfdict = {i: np.cumsum(0.005*(np.random.normal(loc=-2+i/(ncols/4), scale=100, size=8640) - 0.5)) + 100\
               for i in range(ncols)}
     df_means = pd.DataFrame([(-2+i/(ncols/4)) for i in range(ncols)], columns=["means"])
     df_timeseries = pd.DataFrame(dfdict, index=dtindex)
 
+    sampler = Sampler()
+    flows = pd.Series(-0.5/(4320**2)*(np.arange(8640)-4320)**2 + 1.25, index=dtindex)
+    sampler.add_flows(flows)
+
     fig, ax = plt.subplots(ncols=2, nrows=3, figsize=[12,12], facecolor="white")
 
     for k, (name, strategy) in enumerate(strategies.items()):
         if k < 6:
             i, j = k//2, k%2
-            samples = Sampler.sample(df_timeseries, strategy)
+            samples = sampler.sample(df_timeseries, strategy)
             temp = df_means.join(samples)
 
             temp.plot(x="means",y="concentration", kind="scatter", ax=ax[i, j])
 
-            textstr = '\n'.join([f'freq={float(strategy.get("samplingfreq").strip("H")):.2f} H',
-                                 f'dur={strategy.get("samplingtime")} s',
-                                 f'corr={temp["means"].corr(temp["concentration"]):.2f}'])
+            try:
+                textstr = '\n'.join([f'freq={float(strategy.get("samplingfreq").strip("H")):.2f} H',
+                                     f'dur={strategy.get("samplingtime")} s',
+                                     f'corr={temp["means"].corr(temp["concentration"]):.2f}'])
+            except:
+                textstr = "..."
 
             # these are matplotlib.patch.Patch properties
             props = dict(boxstyle='round', facecolor='wheat', alpha=0.5)

@@ -1,6 +1,4 @@
-import datetime
 from environment import Environment, PACKET, CONSTITUENT, DirectedTree, HYDRAULICS, GROUP, DEFAULT
-from Exceptions import RoutingError, PlausibilityError
 import pandas as pd
 import numpy as np
 import time
@@ -9,7 +7,7 @@ import logging
 class Router:
     def __init__(self):
         LOG_FORMAT = "%(asctime)s %(name)s %(levelname)s  - %(message)s"
-        logging.basicConfig(level=logging.DEBUG,
+        logging.basicConfig(level=logging.WARNING,
                             format=LOG_FORMAT,
                             filemode="w")
         self.rtr_log = logging.getLogger("Router")
