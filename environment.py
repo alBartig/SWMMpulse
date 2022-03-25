@@ -5,6 +5,7 @@ import pandas as pd
 from swmm_api import read_out_file
 from swmm_api.output_file import VARIABLES as swmm_vars
 from swmm_api.output_file import OBJECTS as swmm_objs
+import logging
 
 
 class UNITS:
@@ -52,22 +53,36 @@ class GROUP:
 
 
 class HYDRAULICS:
-    MINFLOW = 1.0 #l/s
-    MINVELOCITY = 0.1 #m/s
+    MINFLOW = 1.0  # l/s
+    MINVELOCITY = 0.1  # m/s
     LENGTH = "length"
     DISPERSION_RATE = "dispersion_rate"
 
 
 class DEFAULT:
-    CONST_FECAL = {CONSTITUENT.NAME: CONSTITUENT.FECAL, CONSTITUENT.SPECIFIC_LOAD: 200,
-                   UNITS.UNIT: UNITS.GRAM, CONSTITUENT.DECAY_RATE: 0.0}
+    CONST_FECAL = {CONSTITUENT.NAME: CONSTITUENT.FECAL,
+                   GROUP.GROUPS: [GROUP.INFECTED, GROUP.HEALTHY],
+                   CONSTITUENT.SPECIFIC_LOAD: 200,
+                   UNITS.UNIT: UNITS.GRAM,
+                   CONSTITUENT.DECAY_RATE: 0.0,
+                   CONSTITUENT.FRACTIONS: np.array([1.0]),
+                   CONSTITUENT.SKEWEDNESS: np.array([[1, 1]])}
 
-    CONST_COV = {CONSTITUENT.NAME: CONSTITUENT.COV, CONSTITUENT.SPECIFIC_LOAD: 1000,
-                 UNITS.UNIT: UNITS.COUNT, CONSTITUENT.DECAY_RATE: 0.114, GROUP.GROUPS: [GROUP.INFECTED, GROUP.HEALTHY],
-                 CONSTITUENT.FRACTIONS:np.array([0.5,0.5]), CONSTITUENT.SKEWEDNESS:np.array([[1, 1],[1, 7]])}
+    CONST_COV = {CONSTITUENT.NAME: CONSTITUENT.COV,
+                 CONSTITUENT.SPECIFIC_LOAD: 1000,
+                 UNITS.UNIT: UNITS.COUNT,
+                 CONSTITUENT.DECAY_RATE: 0.114,
+                 GROUP.GROUPS: [GROUP.INFECTED],
+                 CONSTITUENT.FRACTIONS: np.array([0.5, 0.5]),
+                 CONSTITUENT.SKEWEDNESS: np.array([[1, 1], [1, 7]])}
 
-    CONST_PEP = {CONSTITUENT.NAME: CONSTITUENT.PEP, CONSTITUENT.SPECIFIC_LOAD: 1000,
-                 UNITS.UNIT: UNITS.COUNT, CONSTITUENT.DECAY_RATE: 0.0, GROUP.GROUPS: [GROUP.INFECTED, GROUP.HEALTHY]}
+    CONST_PEP = {CONSTITUENT.NAME: CONSTITUENT.PEP,
+                 CONSTITUENT.SPECIFIC_LOAD: 1000,
+                 UNITS.UNIT: UNITS.COUNT,
+                 CONSTITUENT.DECAY_RATE: 0.0,
+                 GROUP.GROUPS: [GROUP.INFECTED, GROUP.HEALTHY],
+                 CONSTITUENT.FRACTIONS: np.array([0.5, 0.5]),
+                 CONSTITUENT.SKEWEDNESS: np.array([[1, 1], [1, 7]])}
 
     DEFAULT_CONSTITUENTS = {CONSTITUENT.FECAL: CONST_FECAL, CONSTITUENT.COV: CONST_COV}
 
@@ -79,30 +94,44 @@ class DEFAULT:
                              3.3, 2.1, 1.5, 2.0, 1.2]
     PATTERN_BRISTOL = [round((w * 0.5 + v * 0.5), 3) for w, v in zip(PATTERN_BRISTOL_MEN, PATTERN_BRISTOL_WOMEN)]
 
-    GROUP_HEALTHY = {GROUP.NAME: GROUP.HEALTHY, GROUP.WEIGHT: 0.8, GROUP.DAILYPOOPS: 1,
-                     GROUP.CONSTITUENTS: [CONST_FECAL], GROUP.PATTERN: PATTERN_BRISTOL}
-    GROUP_INFECTED = {GROUP.NAME: GROUP.INFECTED, GROUP.WEIGHT: 0.2, GROUP.DAILYPOOPS: 1,
-                      GROUP.CONSTITUENTS: [CONST_FECAL, CONST_COV], GROUP.PATTERN: PATTERN_BRISTOL}
+    DEFAULT_HEALTHY = {GROUP.NAME: GROUP.HEALTHY,
+                       GROUP.WEIGHT: 0.99,
+                       GROUP.DAILYPOOPS: 1,
+                       GROUP.CONSTITUENTS: [CONST_FECAL],
+                       GROUP.PATTERN: PATTERN_BRISTOL}
 
-    ENVIRONMENT = {
+    DEFAULT_INFECTED = {GROUP.NAME: GROUP.INFECTED,
+                        GROUP.WEIGHT: 0.01,
+                        GROUP.DAILYPOOPS: 1,
+                        GROUP.CONSTITUENTS: [CONST_FECAL, CONST_COV],
+                        GROUP.PATTERN: PATTERN_BRISTOL}
+
+    DEFAULT_ENVIRONMENT = {
         UNITS.DATE: dt.date(day=1, month=1, year=2000),
-        GROUP.GROUPS: [GROUP_HEALTHY, GROUP_INFECTED],
+        GROUP.GROUPS: [DEFAULT_HEALTHY, DEFAULT_INFECTED],
         CONSTITUENT.DISPERSION_RATE: 0.16
     }
 
 
 class Environment:
     def __init__(self, information=None):
+        LOG_FORMAT = "%(asctime)s %(name)s %(levelname)s  - %(message)s"
+        logging.basicConfig(level=logging.DEBUG,
+                            format=LOG_FORMAT,
+                            filemode="w")
+        self.env_log = logging.getLogger("Environment")
+
         if information is None:
-            information = DEFAULT.ENVIRONMENT
+            information = DEFAULT.DEFAULT_ENVIRONMENT
         self.information = information
-        #self.time_range = pd.date_range(information.get(UNITS.DATE), periods=24 * 60 * 6, freq="10S")
-        self.time_range = np.arange(0,8640) #instead of timestamps, times will be given in 10S steps
+        # self.time_range = pd.date_range(information.get(UNITS.DATE), periods=24 * 60 * 6, freq="10S")
+        self.time_range = np.arange(0, 8640)  # instead of timestamps, times will be given in 10S steps
         self.constituents = DEFAULT.DEFAULT_CONSTITUENTS
         # standardize patterns in groups
         for group in self.information.get(GROUP.GROUPS):
             group[GROUP.PATTERN] = self._standardize_pattern(group.get(GROUP.PATTERN))
-        
+        self.env_log.info("Environment instance created")
+
     def add_graph(self, graph):
         """
         Stores graph data within the environment
@@ -113,6 +142,7 @@ class Environment:
             None
         """
         self.graph = graph
+        self.env_log.debug(f"Graph of type {type(graph)} added")
         return None
 
     def _standardize_pattern(self, pattern):
@@ -137,24 +167,8 @@ class Environment:
         s_weights = s_weights.reindex(dest_range)
         s_weights.interpolate(limit_direction="both", inplace=True)
         s_weights.drop(s_weights.index[-1], inplace=True)
+        self.env_log.debug("pattern standardized")
         return s_weights.values
-
-    def _packet_gen(self, i, group, node=None):
-        """
-        creates a packet dictionary with an id and an origin time. The time is assigned randomly
-        according to the time pattern in the environment
-        Args:
-            i (int): index number for packet, should be unique in the list
-
-        Returns:
-            dict
-        """
-        packet = {PACKET.PACKETID: f"P{int(i):d}",
-                  PACKET.T0: random.choices(self.time_range.values, weights=group.get(GROUP.PATTERN), k=1),
-                  PACKET.CLASSIFICATION: group.get(GROUP.NAME),
-                  PACKET.CONSTITUENTS: group.get(GROUP.CONSTITUENTS),
-                  PACKET.ORIGIN: node}
-        return packet
 
     def get_packets(self, population=None):
         """
@@ -169,25 +183,26 @@ class Environment:
         Returns:
             pd.DataFrame
         """
+        self.env_log.info("Generating packets")
         if population is None:
-            population = [(node, valdict.get("POP",0)) for node, valdict in self.graph.adjls.items()]
+            population = [(node, valdict.get("POP", 0)) for node, valdict in self.graph.adjls.items()]
         # create a list of strings (node-names) were each string represens an individual in the environment.
         # From the list, individuals are drawn at random later
         people = []
-        ls_nodes = [node[0] for node in population] #list of nodes in graph
-        ls_pop = [node[1] for node in population] #list of populations in graph
+        ls_nodes = [node[0] for node in population]  # list of nodes in graph
+        ls_pop = [node[1] for node in population]  # list of populations in graph
         pop_tot = sum(ls_pop)
 
         # calculate sum of weights of groups
         grp_weights_tot = sum(group.get(GROUP.WEIGHT) for group in self.information.get(GROUP.GROUPS))
 
-        #prepare lists for packet attributes
-        arr_t0s = [] #prepare list arrival times
-        arr_class = [] #prepare list of classifications
-        arr_contents = [] #prepare list of contents
-        arr_nodes = [] #prepare list of origin nodes
+        # prepare lists for packet attributes
+        arr_t0s = []  # prepare list arrival times
+        arr_class = []  # prepare list of classifications
+        arr_contents = []  # prepare list of contents
+        arr_nodes = []  # prepare list of origin nodes
 
-        #assign attributes for each group
+        # assign attributes for each group
         groups = self.information.get(GROUP.GROUPS)
         for group in groups:
             # calculate number of people to pick
@@ -197,10 +212,12 @@ class Environment:
             arr_class += [group.get(GROUP.NAME)] * number
             arr_contents = [group.get(GROUP.CONSTITUENTS)] * number
             arr_nodes += random.choices(ls_nodes, weights=ls_pop, k=number)
-        arr_pids = [f"P{i}" for i in range(len(arr_t0s))]  #counter for packets
+        arr_pids = [f"P{i}" for i in range(len(arr_t0s))]  # counter for packets
 
         packets = pd.DataFrame(data=[arr_pids, arr_class, arr_nodes, arr_t0s, arr_contents],
-                               index=[PACKET.PACKETID, PACKET.CLASSIFICATION, PACKET.ORIGIN, PACKET.T0, PACKET.CONSTITUENTS]).T
+                               index=[PACKET.PACKETID, PACKET.CLASSIFICATION, PACKET.ORIGIN, PACKET.T0,
+                                      PACKET.CONSTITUENTS]).T
+        self.env_log.info(f"{len(packets)} packets generated")
         return packets
 
     def read_swmmoutfile(self, outfile_path):
@@ -212,10 +229,11 @@ class Environment:
         Returns:
             None
         """
+        self.env_log.info("Reading swmm-out-file to read flows")
         with read_out_file(outfile_path) as out:
             # import outfile as dataframe
             df = out.get_part(kind=swmm_objs.LINK, variable=[swmm_vars.LINK.FLOW, swmm_vars.LINK.VELOCITY])
-            #df = df.loc[:, (swmm_objs.LINK, slice(None), [swmm_vars.LINK.FLOW, swmm_vars.LINK.VELOCITY])].droplevel(0, axis=1)
+            # df = df.loc[:, (swmm_objs.LINK, slice(None), [swmm_vars.LINK.FLOW, swmm_vars.LINK.VELOCITY])].droplevel(0, axis=1)
             # reindex and interpolate dataframe
             _date = df.index[0].date()
             _dtindex = pd.date_range(_date, periods=8641, freq="10S")
@@ -225,12 +243,14 @@ class Environment:
             df.drop(df.index[-1], inplace=True)
             date = self.information.get(UNITS.DATE)
             df.index = df.index.map(lambda d: d.replace(year=date.year, month=date.month, day=date.day))
-            self.flow_rates = df.xs(swmm_vars.LINK.FLOW, axis=1, level=1).replace(0,HYDRAULICS.MINFLOW).to_dict(orient="list")
+            self.flow_rates = df.xs(swmm_vars.LINK.FLOW, axis=1, level=1).replace(0, HYDRAULICS.MINFLOW).to_dict(
+                orient="list")
             self._lists_to_array(self.flow_rates)
-            self.flow_velocities = df.xs(swmm_vars.LINK.VELOCITY, axis=1, level=1).replace(0,HYDRAULICS.MINVELOCITY).\
+            self.flow_velocities = df.xs(swmm_vars.LINK.VELOCITY, axis=1, level=1).replace(0, HYDRAULICS.MINVELOCITY). \
                 to_dict(orient="list")
             self._lists_to_array(self.flow_velocities)
             self.TIMESTEPS = len(df.index)
+        self.env_log.info("Swmm-out-file read")
         return None
 
     def _lists_to_array(self, dic):
@@ -249,10 +269,6 @@ class Environment:
     def get_flow_rate(self, time, link):
         return self.flow_rates.get(link)[self._calc_index(time)]
 
-    def read_swmminpfile(self, inpfile_path):
-        self.graph = DirectedTree.from_swmm(inpfile_path)
-        return None
-
 
 class DirectedTree:
     def __init__(self, links, nodes=None):
@@ -270,7 +286,7 @@ class DirectedTree:
 
     @classmethod
     def from_swmm(cls, path):
-        from swmm_api.input_file.section_labels import JUNCTIONS, OUTFALLS, STORAGE, ORIFICES, DIVIDERS,\
+        from swmm_api.input_file.section_labels import JUNCTIONS, OUTFALLS, STORAGE, ORIFICES, DIVIDERS, \
             CONDUITS, WEIRS, PUMPS, OUTLETS
         from swmm_api import read_inp_file
 
@@ -290,11 +306,11 @@ class DirectedTree:
                 links[i][3] = ("length", links[i][3])
             except:
                 pass
-        return cls(links)\
+        return cls(links)
 
     @property
     def root(self):
-        for node,values in self.adjls.items():
+        for node, values in self.adjls.items():
             if len(values["outlets"]) == 0:
                 return node
 
@@ -361,13 +377,13 @@ class DirectedTree:
         else:
             return False
 
-    def check_node(self,node):
+    def check_node(self, node):
         if self.adjls.__contains__(node):
             return True
         else:
             return False
 
-    def get_inletnodes(self,node):
+    def get_inletnodes(self, node):
         if self.check_node(node):
             inlets = self.adjls[node]['inlets']
             inletnodes = [inlet[0] for inlet in inlets]
@@ -375,7 +391,7 @@ class DirectedTree:
         else:
             return False
 
-    def get_inletlinks(self,node):
+    def get_inletlinks(self, node):
         if self.check_node(node):
             inlets = self.adjls[node]['inlets']
             inletlinks = [inlet[1] for inlet in inlets]
@@ -383,7 +399,7 @@ class DirectedTree:
         else:
             return False
 
-    def get_outlets(self,node):
+    def get_outlets(self, node):
         onode, olink = self.adjls.get(node).get("outlets")[0]
         return onode, olink
 
@@ -401,37 +417,39 @@ class DirectedTree:
 
     def get_nodeindex(self, node):
         return self.adjls[node]['nodeindex']
-    
+
     def order_shreve(self, end=None):
         """
         assigns Shreve order values to graph-nodes
         Returns:
             None
         """
+
         def dfs(junction):
-            #import list of visited nodes
+            # import list of visited nodes
             nonlocal visited
-            #prepare array for upstream order-values
+            # prepare array for upstream order-values
             upstream_values = []
-            #iterate through upstream nodes
+            # iterate through upstream nodes
             for node in self.get_inletnodes(junction):
-                at = self.get_nodeindex(node) #check if node was already visited
-                if visited[at] != True: #if not, visit and cross off list
+                at = self.get_nodeindex(node)  # check if node was already visited
+                if visited[at] != True:  # if not, visit and cross off list
                     visited[at] = True
                     dfs(node)
-                    upstream_values.append(self.get_nodevalue(node, "shreve")) #append upstream order to list
-            #Check if node has value assigned
-            try: #take maximum of upstream order values and add 1
+                    upstream_values.append(self.get_nodevalue(node, "shreve"))  # append upstream order to list
+            # Check if node has value assigned
+            try:  # take maximum of upstream order values and add 1
                 order = max(upstream_values) + 1
-            except: #if there are no upstream order values, order is 0
+            except:  # if there are no upstream order values, order is 0
                 order = 0
-            self.add_nodevalue(junction, "shreve", order) #assign order to node
+            self.add_nodevalue(junction, "shreve", order)  # assign order to node
             return None
-        #start at root if no other end is specified
+
+        # start at root if no other end is specified
         if end is None:
             end = self.root
-        visited = np.zeros(self.nodeindex+1,dtype=bool) #prepare list to keep track of visited nodes
-        dfs(end) #start dfs
+        visited = np.zeros(self.nodeindex + 1, dtype=bool)  # prepare list to keep track of visited nodes
+        dfs(end)  # start dfs
         return None
 
 

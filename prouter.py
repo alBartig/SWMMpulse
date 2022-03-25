@@ -4,10 +4,15 @@ from Exceptions import RoutingError, PlausibilityError
 import pandas as pd
 import numpy as np
 import time
-
+import logging
 
 class Router:
     def __init__(self):
+        LOG_FORMAT = "%(asctime)s %(name)s %(levelname)s  - %(message)s"
+        logging.basicConfig(level=logging.DEBUG,
+                            format=LOG_FORMAT,
+                            filemode="w")
+        self.rtr_log = logging.getLogger("Router")
         pass
 
     def add_environment(self, env):
@@ -22,43 +27,6 @@ class Router:
         self.environment = env
         return None
 
-    def _route_packet(self, packet):
-        """
-        routs each packet by tracing the path in the system and then adding up
-        traveltimes between each node
-        Args:
-            packet (dict): dictionary of the packet to be routed
-
-        Returns:
-            list
-        """
-        path = self.graph.trace_path(packet.get(PACKET.ORIGIN))  # trace path
-        ct = packet.get(PACKET.T0)  # get origin time
-        stops = [(packet.get(PACKET.ORIGIN), ct)]  # prepare list for stops
-        for stop in path[1:]:
-            node, link = stop[0], stop[1]
-            # lookup velocity, if v == 0 break routing
-            v = self.environment.get_velocity(ct, link)
-            # v,delay = self.flows.lookup_v(link, ct) #lookup flowvelocity (and delay until v > 0)
-            if v is None:
-                break
-            try:
-                td = int(round(self.graph.get_linkvalue(link, gc.LENGTH) / v))
-            except:
-                print(f"Link: {link}, Conduit length: {self.graph.get_linkvalue(link, 'LENGTH')}, Velocity: {v}")
-                raise ValueError
-            if td < 0:
-                print('flowtime negative')
-                raise PlausibilityError
-            ct = ct + datetime.timedelta(seconds=td)  # + delay
-            stops.append((node, ct))  # append stop
-            # check for plausibility:
-            t0 = packet.get("t0")
-            for stop in stops:  # this could maybe be eliminated!!
-                if stop[0] < t0:
-                    raise RoutingError(packet, stops)
-        return stops
-
     def route(self, packets=None, as_dataframe=False):
         """
         Create routetable.
@@ -66,6 +34,7 @@ class Router:
         Returns:
             dict
         """
+        self.rtr_log.info("Routing packets")
         if packets is None:
             # generate packets from environment
             packets = self.environment.get_packets()
@@ -90,6 +59,7 @@ class Router:
             endtimes = starttimes + distance / velocities / 10
             # endtimes = (starttimes + np.rint(distance / velocities).astype("int")) % 8640
             columns[onode].update({packetid: endtime for packetid, endtime in zip(packetids, endtimes)})
+        self.rtr_log.info(f"{len(columns)} packets routed")
 
         if as_dataframe:
             routetable = pd.DataFrame.from_dict(columns)  # generate DataFrame from columns-dictionary
@@ -126,6 +96,12 @@ class Router:
         groups = constituent.get(GROUP.GROUPS)
         dispersion_rate = self.environment.information.get(HYDRAULICS.DISPERSION_RATE)
 
+        self.rtr_log.info(f"Postprocessing node {node} with flows from link {link}.\n"
+                          f"Constituent rounted: {constituent.get(CONSTITUENT.NAME)}\n"
+                          f"In groups: {groups}\n"
+                          f"Preparing arrays...")
+        start = time.time()
+
         # prepare dataframe for postprocessing
         df_post = packets.loc[packets["classification"].isin(groups)].set_index("pid")
         df_post["tm"] = pd.Series(routetable[self.environment.graph.root])
@@ -153,30 +129,23 @@ class Router:
         arr_dcright = arr_peak_frctns / arr_dxright
         arr_tm_frctns = np.repeat([arr_tm], len(fractions), axis=0)
 
-        arr_timeseries = np.zeros([len(df_post), len(fractions), 8640 * 3])  # prepare
-        print("calculating timeseries")
+        arr_timeseries = np.zeros([len(df_post), len(fractions), 8640 * 3])  # prepare empty timeseries
+
+        self.rtr_log.info(f"arrays created in {time.time()-start} seconds\n"
+                          f"Calculating timeseries...")
         start = time.time()
         for i, packet in enumerate(
                 zip(arr_timeseries, arr_tm_frctns.T, arr_dxleft, arr_dxright, arr_borderleft.T, arr_borderright.T,
                     arr_peak_frctns, arr_dcleft, arr_dcright)):
             self._process_packet(packet)
-        print(f"{time.time() - start} sekunden")
-        print("sum fractions")
+        self.rtr_log.info(f"timeseries calculated in {time.time() - start} seconds\n"
+                          f"Aggregating timeseries...")
         start = time.time()
         arr_timeseries = np.sum(arr_timeseries, axis=1)
-        print(f"{time.time() - start} sekunden")
-        print("split days")
-        start = time.time()
         ts1, ts2, ts3 = np.split(arr_timeseries.T, 3)
-        print(f"{time.time() - start} sekunden")
-        print("sum days")
-        start = time.time()
         arr_timeseries = ts1 + ts2 + ts3
-        print(f"{time.time() - start} sekunden")
-        print("convert dict")
-        start = time.time()
+        self.rtr_log.info(f"timeseries aggregated in {time.time() - start} seconds\n")
         dic_timeseries = {pid: timeseries for pid, timeseries in zip(df_post.index, arr_timeseries.T)}
-        print(f"{time.time() - start} sekunden")
 
         if not as_df:
             return dic_timeseries
@@ -195,14 +164,16 @@ class Router:
         try:
             x[borderleft:tm] = -dcleft * abs(np.arange(borderleft - tm, 0)) + peak
         except:
-            print(f"{borderleft} : {tm}\n",
-                  f"{tm - borderleft} : 0")
+            self.rtr_log.debug(f"Error during postprocessing fraction:"
+                               f"{borderleft} : {tm}\n"
+                               f"{tm - borderleft} : 0")
             x[borderleft:tm] = -dcleft * abs(np.arange(borderleft - tm, 0)) + peak
         try:
             x[tm:borderright] = -dcright * abs(np.arange(0, borderright - tm)) + peak
         except:
-            print(f"{tm} : {borderright}\n",
-                  f"{borderright - tm} : 0")
+            self.rtr_log.debug(f"Error during postprocessing fraction:"
+                               f"{tm} : {borderright}\n"
+                               f"{borderright - tm} : 0")
             x[tm:borderright] = -dcright * abs(np.arange(0, borderright - tm)) + peak
         return x
 
