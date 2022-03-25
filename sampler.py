@@ -89,31 +89,68 @@ class Sampler:
 
     @staticmethod
     def get_sampling_hours(freq):
+        """
+        Creates a date_range with the points in time that are being sampled
+        Args:
+            freq (str): Frequency-string
+
+        Returns: pd.date_range
+
+        """
         start = dt.date(year=2000, month=1, day=1)
-        hours = float(freq.strip("H"))
-        return pd.date_range(start, periods=24/hours, freq=freq)
+        periods = dt.timedelta(days=1) / pd.to_timedelta(freq)
+        return pd.date_range(start, periods=24/periods, freq=freq)
 
     @staticmethod
-    def get_sampling_times(starttime, duration, interval=10):
-        nsteps = duration/interval
-        interval = f"{interval}S"
-        return pd.date_range(starttime, periods=nsteps, freq=interval)
+    def get_sampling_times(starttime, duration, freq="10S"):
+        """
+        returns the sampling interval for a given starttime
+        Args:
+            starttime (timestamp): 
+            duration (dt.timedelta): 
+            interval (str): 
+
+        Returns:
+
+        """
+        nsteps = duration / pd.to_timedelta(freq)
+        return pd.date_range(starttime, periods=nsteps, freq=freq)
 
     @staticmethod
-    def sampling_index_time(samplingfreq, duration=120, interval=10):
+    def sampling_index_time(samplingfreq, duration=dt.timedelta(seconds=120), freq="10S"):
+        """
+        Returns a indexer for all sampled timesteps so that the correct timesteps can be picked from a given timeseries
+        Args:
+            samplingfreq (str): Frequency by which the samples is to sample 
+            duration (dt.timedelta): Timedelta, over which the sample is taken 
+            freq (str): Frequency of the timeseries 
+
+        Returns:
+            pd.DatetimeIndex
+        """
         starttimes = Sampler.get_sampling_hours(samplingfreq)
         sampling_index = []
         for time in starttimes:
-            sampling_index += Sampler.get_sampling_times(time, duration, interval).to_list()
+            sampling_index += Sampler.get_sampling_times(time, duration, freq).to_list()
         return pd.DatetimeIndex(sampling_index)
 
-    def sampling_index_volume(self, samplecount=24, duration=120, interval=10):
+    def sampling_index_volume(self, samplecount=24, duration=dt.timedelta(seconds=120), freq=10):
+        """
+        Creates a volumne-weighted sampling index
+        Args:
+            samplecount (int): Number of samples to be taken over 24 hours
+            duration (dt.timedelta): timedelta, over which sample is to be taken 
+            freq (str): Frequency of the timeseries
+
+        Returns:
+            pd.DatetimeIndex
+        """
         flows = self.flows
         date = flows.index[0].date()
         starttimes = (flows.cumsum()//(flows.sum()/(samplecount-1))).drop_duplicates().index
         sampling_index = []
         for time in starttimes:
-            sampling_index += Sampler.get_sampling_times(time, duration, interval).to_list()
+            sampling_index += Sampler.get_sampling_times(time, duration, freq).to_list()
         sampling_index = pd.DatetimeIndex(sampling_index)
         return sampling_index[sampling_index.date == date]
 
