@@ -97,36 +97,39 @@ class DEFAULT:
     DEFAULT_HEALTHY = {GROUP.NAME: GROUP.HEALTHY,
                        GROUP.WEIGHT: 0.99,
                        GROUP.DAILYPOOPS: 1,
-                       GROUP.CONSTITUENTS: [CONST_FECAL],
+                       GROUP.CONSTITUENTS: [CONSTITUENT.FECAL],
                        GROUP.PATTERN: PATTERN_BRISTOL}
 
     DEFAULT_INFECTED = {GROUP.NAME: GROUP.INFECTED,
                         GROUP.WEIGHT: 0.01,
                         GROUP.DAILYPOOPS: 1,
-                        GROUP.CONSTITUENTS: [CONST_FECAL, CONST_COV],
+                        GROUP.CONSTITUENTS: [CONSTITUENT.FECAL, CONSTITUENT.COV],
                         GROUP.PATTERN: PATTERN_BRISTOL}
 
     DEFAULT_ENVIRONMENT = {
         UNITS.DATE: dt.date(day=1, month=1, year=2000),
         GROUP.GROUPS: [DEFAULT_HEALTHY, DEFAULT_INFECTED],
+        GROUP.CONSTITUENTS: DEFAULT_CONSTITUENTS,
         CONSTITUENT.DISPERSION_RATE: 0.16
     }
 
 
 class Environment:
-    def __init__(self, information=None):
+    def __init__(self, information=None, loglvl=None):
         LOG_FORMAT = "%(asctime)s %(name)s %(levelname)s  - %(message)s"
-        logging.basicConfig(level=logging.WARNING,
-                            format=LOG_FORMAT,
-                            filemode="w")
+        logging.basicConfig(level=logging.CRITICAL,
+                            format=LOG_FORMAT)
         self.env_log = logging.getLogger("Environment")
+        if loglvl is None:
+            self.env_log.setLevel(logging.CRITICAL)
+        else:
+            self.env_log.setLevel(logging.loglvl)
 
         if information is None:
             information = DEFAULT.DEFAULT_ENVIRONMENT
         self.information = information
         # self.time_range = pd.date_range(information.get(UNITS.DATE), periods=24 * 60 * 6, freq="10S")
         self.time_range = np.arange(0, 8640)  # instead of timestamps, times will be given in 10S steps
-        self.constituents = DEFAULT.DEFAULT_CONSTITUENTS
         # standardize patterns in groups
         for group in self.information.get(GROUP.GROUPS):
             group[GROUP.PATTERN] = self._standardize_pattern(group.get(GROUP.PATTERN))

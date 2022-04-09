@@ -5,12 +5,16 @@ import time
 import logging
 
 class Router:
-    def __init__(self):
+    def __init__(self, loglvl=None):
         LOG_FORMAT = "%(asctime)s %(name)s %(levelname)s  - %(message)s"
-        logging.basicConfig(level=logging.WARNING,
-                            format=LOG_FORMAT,
-                            filemode="w")
+        logging.basicConfig(level=logging.CRITICAL,
+                            format=LOG_FORMAT)
+
         self.rtr_log = logging.getLogger("Router")
+        if loglvl is None:
+            self.rtr_log.setLevel(logging.WARNING)
+        else:
+            self.rtr_log.setLevel(logging.WARNING)
         pass
 
     def add_environment(self, env):
