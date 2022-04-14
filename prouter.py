@@ -125,8 +125,7 @@ class Router:
 
         # calculate fractions
         arr_load_frctns = np.repeat([arr_load], len(fractions), axis=0).T * fractions
-        arr_peak_frctns = ((2 * arr_load_frctns).T / arr_2sd_s.T).T / \
-                          (np.sum(skewedness, axis=0) * arr_2sd_s)
+        arr_peak_frctns = ((2 * arr_load_frctns).T).T / (np.sum(skewedness, axis=1) * np.repeat([arr_2sd_m], len(fractions), axis=0).T)
         arr_dcleft = arr_peak_frctns / arr_dxleft
         arr_dcright = arr_peak_frctns / arr_dxright
         arr_tm_frctns = np.repeat([arr_tm], len(fractions), axis=0)
@@ -164,19 +163,23 @@ class Router:
     def _process_fraction(self, fraction):
         x, tm, dxleft, dxright, borderleft, borderright, peak, dcleft, dcright = fraction
         try:
-            x[borderleft:tm] = -dcleft * abs(np.arange(borderleft - tm, 0)) + peak
+            #x[borderleft:tm] = -dcleft * abs(np.arange(borderleft - tm, 0)) + peak
+            x[borderleft:tm] = np.linspace(0, peak, tm-borderleft)
         except:
             self.rtr_log.debug(f"Error during postprocessing fraction:"
                                f"{borderleft} : {tm}\n"
                                f"{tm - borderleft} : 0")
             x[borderleft:tm] = -dcleft * abs(np.arange(borderleft - tm, 0)) + peak
+            raise BaseException
         try:
-            x[tm:borderright] = -dcright * abs(np.arange(0, borderright - tm)) + peak
+            #x[tm:borderright] = -dcright * abs(np.arange(0, borderright - tm)) + peak
+            x[tm:borderright] = np.linspace(peak, 0, borderright-tm)
         except:
             self.rtr_log.debug(f"Error during postprocessing fraction:"
                                f"{tm} : {borderright}\n"
                                f"{borderright - tm} : 0")
             x[tm:borderright] = -dcright * abs(np.arange(0, borderright - tm)) + peak
+            raise BaseException
         return x
 
 

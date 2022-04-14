@@ -73,8 +73,8 @@ class DEFAULT:
                  UNITS.UNIT: UNITS.COUNT,
                  CONSTITUENT.DECAY_RATE: 0.114,
                  GROUP.GROUPS: [GROUP.INFECTED],
-                 CONSTITUENT.FRACTIONS: np.array([0.5, 0.5]),
-                 CONSTITUENT.SKEWEDNESS: np.array([[1, 1], [1, 7]])}
+                 CONSTITUENT.FRACTIONS: np.array([1.0]),
+                 CONSTITUENT.SKEWEDNESS: np.array([[1, 1]])}
 
     CONST_PEP = {CONSTITUENT.NAME: CONSTITUENT.PEP,
                  CONSTITUENT.SPECIFIC_LOAD: 1000,
