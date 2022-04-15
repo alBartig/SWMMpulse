@@ -5,40 +5,72 @@ from environment import Environment, DirectedTree, PACKET, CONSTITUENT, Directed
 from prouter import Router
 
 strategies = {"A":{"kind":"time",
-                   "samplingfreq":f"{1}H",
-                   "samplingduration":60,
-                   "volume":250},
-              "B":{"kind":"time",
-                   "samplingfreq":f"{1/3}H",
-                   "samplingduration":60,
-                   "volume":250},
-              "C":{"kind":"flow",
-                   "samplingfreq":f"{1}H",
-                   "samplingduration":60,
-                   "volume":200},
-              "D":{"kind":"flow",
-                   "samplingfreq":f"{1/3}H",
-                   "samplingduration":60,
-                   "volume":200},
-              "E":{"kind":"volume",
                    "samplecount":24,
                    "samplingduration":60,
-                   "volume":50},
-              "F":{"kind":"volume",
+                   "volume":250,
+                   "start-time":dt.time(hour=0, minute=0),
+                   "end-time":dt.time(hour=23, minute=59)},
+              "B":{"kind":"time",
                    "samplecount":72,
                    "samplingduration":60,
-                   "volume":250},
-              "G":{"kind":"grab",
+                   "volume":250,
+                   "start-time":dt.time(hour=0, minute=0),
+                   "end-time":dt.time(hour=23, minute=59)},
+              "C":{"kind":"time",
+                   "samplecount":24,
+                   "samplingduration":60,
+                   "volume":250,
+                   "start-time":dt.time(hour=6, minute=0),
+                   "end-time":dt.time(hour=12, minute=59)},
+              "D":{"kind":"flow",
+                   "samplecount":24,
+                   "samplingduration":60,
+                   "volume":200,
+                   "start-time":dt.time(hour=0, minute=0),
+                   "end-time":dt.time(hour=23, minute=59)},
+              "E":{"kind":"flow",
+                   "samplecount":72,
+                   "samplingduration":60,
+                   "volume":200,
+                   "start-time":dt.time(hour=0, minute=0),
+                   "end-time":dt.time(hour=23, minute=59)},
+              "F":{"kind":"flow",
+                   "samplecount":24,
+                   "samplingduration":60,
+                   "volume":200,
+                   "start-time":dt.time(hour=6, minute=0),
+                   "end-time":dt.time(hour=12, minute=59)},
+              "G":{"kind":"volume",
+                   "samplecount":24,
+                   "samplingduration":60,
+                   "volume":50,
+                   "start-time":dt.time(hour=0, minute=0),
+                   "end-time":dt.time(hour=23, minute=59)},
+              "H":{"kind":"volume",
+                   "samplecount":72,
+                   "samplingduration":60,
+                   "volume":250,
+                   "start-time":dt.time(hour=0, minute=0),
+                   "end-time":dt.time(hour=23, minute=59)},
+              "I":{"kind":"volume",
+                   "samplecount":24,
+                   "samplingduration":60,
+                   "volume":250,
+                   "start-time":dt.time(hour=6, minute=0),
+                   "end-time":dt.time(hour=12, minute=59)},
+              "J":{"kind":"grab",
                    "samplingtime":dt.time(hour=9),
                    "samplingduration":120,
                    "volume":1000},
-              "H":{"kind":"grab",
+              "K":{"kind":"grab",
                    "samplingtime":dt.time(hour=12),
                    "samplingduration":120,
                    "volume":1000}}
 
 class STRATEGY:
     SAMPLINGTIME = "samplingtime"
+    START = "start-time"
+    END = "end-time"
     SAMPLINGFREQ = "samplingfreq"
     SAMPLINGDURATION = "samplingduration"
     SAMPLINGVOLUME = "samplingvolume"
@@ -49,7 +81,9 @@ class STRATEGY:
     COMPOSITE = "composite"
 
 class Sampler:
-    def __init__(self, strategies=strategies):
+    def __init__(self, strategies=None):
+        if strategies is None:
+            strategies = strategies
         self.strategies = strategies
 
     def add_strategies(self, strategies):
@@ -85,10 +119,11 @@ class Sampler:
         Returns: None
 
         """
-        self.flows = flow
+        dt_index = pd.date_range("01-01-2000", periods=8640, freq="10S")
+        self.flows = pd.Series(flow, index=dt_index)
 
     @staticmethod
-    def get_sampling_hours(freq):
+    def get_sampling_hours(start, end, freq):
         """
         Creates a date_range with the points in time that are being sampled
         Args:
@@ -97,9 +132,9 @@ class Sampler:
         Returns: pd.date_range
 
         """
-        start = dt.date(year=2000, month=1, day=1)
-        periods = dt.timedelta(days=1) / pd.to_timedelta(freq)
-        return pd.date_range(start, periods=24/periods, freq=freq)
+        start = dt.datetime.combine(dt.date(year=2000, month=1, day=1), start)
+        end = dt.datetime.combine(dt.date(year=2000, month=1, day=1), end)
+        return pd.date_range(start, end, freq=freq)
 
     @staticmethod
     def get_sampling_times(starttime, duration, freq="10S"):
@@ -117,7 +152,7 @@ class Sampler:
         return pd.date_range(starttime, periods=nsteps, freq=freq)
 
     @staticmethod
-    def sampling_index_time(samplingfreq, duration=dt.timedelta(seconds=120), freq="10S"):
+    def sampling_index_time(start, end, samplingfreq, duration=dt.timedelta(seconds=60), freq="10S"):
         """
         Returns a indexer for all sampled timesteps so that the correct timesteps can be picked from a given timeseries
         Args:
@@ -128,13 +163,17 @@ class Sampler:
         Returns:
             pd.DatetimeIndex
         """
-        starttimes = Sampler.get_sampling_hours(samplingfreq)
+        starttimes = Sampler.get_sampling_hours(start, end, samplingfreq)
         sampling_index = []
+
+        if type(duration) is not dt.timedelta:
+            duration = dt.timedelta(seconds=duration)
+
         for time in starttimes:
             sampling_index += Sampler.get_sampling_times(time, duration, freq).to_list()
         return pd.DatetimeIndex(sampling_index)
 
-    def sampling_index_volume(self, samplecount=24, duration=dt.timedelta(seconds=120), freq=10):
+    def sampling_index_volume(self, start, end, samplecount=24, duration=dt.timedelta(seconds=120), freq=10):
         """
         Creates a volumne-weighted sampling index
         Args:
@@ -145,7 +184,11 @@ class Sampler:
         Returns:
             pd.DatetimeIndex
         """
-        flows = self.flows
+        start = dt.datetime.combine(dt.date(year=2000, month=1, day=1), start)
+        end = dt.datetime.combine(dt.date(year=2000, month=1, day=1), end)
+
+        flows = self.flows[start:end]
+
         date = flows.index[0].date()
         starttimes = (flows.cumsum()//(flows.sum()/(samplecount-1))).drop_duplicates().index
         sampling_index = []
@@ -167,20 +210,31 @@ class Sampler:
             pd.Series: with mean sample concentrations for each timeseries
 
         """
-        kind = strategy.get("kind", "time")
+        dt_index = pd.date_range("01-01-2000", periods=8640, freq="10S")
+        df_timeseries.set_index(dt_index)
+
+        kind = strategy.get("kind", "")
         if kind == "time":
-            samplingindex = Sampler.sampling_index_time(samplingfreq=strategy.get(STRATEGY.SAMPLINGFREQ),
+            samplingfreq = f"{24 / strategy.get(STRATEGY.SAMPLECOUNT)}H"
+            samplingindex = Sampler.sampling_index_time(start = strategy.get(STRATEGY.START),
+                                                        end = strategy.get(STRATEGY.END),
+                                                        samplingfreq=samplingfreq,
                                                         duration=strategy.get(STRATEGY.SAMPLINGDURATION))
             sample_concs = df_timeseries.loc[samplingindex,:].mean()
 
         elif kind == "flow":
-            samplingindex = Sampler.sampling_index_time(samplingfreq=strategy.get(STRATEGY.SAMPLINGFREQ),
+            samplingfreq = f"{24 / strategy.get(STRATEGY.SAMPLECOUNT)}H"
+            samplingindex = Sampler.sampling_index_time(start = strategy.get(STRATEGY.START),
+                                                        end = strategy.get(STRATEGY.END),
+                                                        samplingfreq=samplingfreq,
                                                         duration=strategy.get(STRATEGY.SAMPLINGDURATION))
             sample_concs = df_timeseries.multiply(self.flows, axis="index")
             sample_concs = sample_concs.div(self.flows.mean(), axis="index").loc[samplingindex,:].mean()
 
         elif kind == "volume":
-            samplingindex = self.sampling_index_volume(samplecount=strategy.get(STRATEGY.SAMPLECOUNT),
+            samplingindex = self.sampling_index_volume(start = strategy.get(STRATEGY.START),
+                                                        end = strategy.get(STRATEGY.END),
+                                                        samplecount=strategy.get(STRATEGY.SAMPLECOUNT),
                                                         duration=strategy.get(STRATEGY.SAMPLINGDURATION))
             sample_concs = df_timeseries.loc[samplingindex,:].mean()
 
@@ -189,6 +243,10 @@ class Sampler:
             samplingindex = Sampler.get_sampling_times(starttime=samplingtime,
                                                        duration=strategy.get(STRATEGY.SAMPLINGDURATION))
             sample_concs = df_timeseries.loc[samplingindex,:].mean()
+
+        else:
+            print("strategy requires key 'kind'")
+            return False
 
         sample_concs.rename("concentration", inplace=True)
         return sample_concs
