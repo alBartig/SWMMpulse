@@ -4,7 +4,7 @@ import numpy as np
 from environment import Environment, DirectedTree, PACKET, CONSTITUENT, DirectedTree, HYDRAULICS, GROUP, DEFAULT
 from prouter import Router
 
-strategies = {"A":{"kind":"time",
+STRATEGIES = {"A":{"kind":"time",
                    "samplecount":24,
                    "samplingduration":60,
                    "volume":250,
@@ -66,6 +66,7 @@ strategies = {"A":{"kind":"time",
                    "samplingtime":dt.time(hour=12),
                    "samplingduration":120,
                    "volume":1000}}
+
 
 class STRATEGY:
     SAMPLINGTIME = "samplingtime"
