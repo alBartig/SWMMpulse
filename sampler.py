@@ -149,7 +149,14 @@ class Sampler:
         Returns:
 
         """
-        nsteps = duration / pd.to_timedelta(freq)
+        if type(duration) == pd._libs.tslibs.timedeltas.Timedelta or type(duration) == dt.timedelta:
+            nsteps = duration / pd.to_timedelta(freq)
+        elif type(duration) == int:
+            nsteps = dt.timedelta(seconds=duration) / pd.to_timedelta(freq)
+        else:
+            print(f"duration: {pd.to_timedelta(freq)}, type: {pd.to_timedelta(freq)}\n, should be: Timedelta"
+                  f"freq: {freq}, type: {type(freq)}, should be: Timedelta")
+            raise TypeError()
         return pd.date_range(starttime, periods=nsteps, freq=freq)
 
     @staticmethod
@@ -174,7 +181,7 @@ class Sampler:
             sampling_index += Sampler.get_sampling_times(time, duration, freq).to_list()
         return pd.DatetimeIndex(sampling_index)
 
-    def sampling_index_volume(self, start, end, samplecount=24, duration=dt.timedelta(seconds=120), freq=10):
+    def sampling_index_volume(self, start, end, samplecount=24, duration=dt.timedelta(seconds=120), freq="10S"):
         """
         Creates a volumne-weighted sampling index
         Args:
