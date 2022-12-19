@@ -366,41 +366,7 @@ class Sampler:
         kind = strategy.get("kind", "")
 
         samplingindex = self.sampling_index(strategy)
-
-        if kind == "time":
-            samplingfreq = f"{24 / strategy.get(STRATEGY.SAMPLECOUNT)}H"
-            # samplingindex = Sampler.sampling_index_time(start = strategy.get(STRATEGY.START),
-            #                                             end = strategy.get(STRATEGY.END),
-            #                                             samplingfreq=samplingfreq,
-            #                                             duration=strategy.get(STRATEGY.SAMPLINGDURATION))
-            sample_concs = df_timeseries.loc[samplingindex,:].mean()
-
-        elif kind == "flow":
-            samplingfreq = f"{24 / strategy.get(STRATEGY.SAMPLECOUNT)}H"
-            # samplingindex = Sampler.sampling_index_time(start = strategy.get(STRATEGY.START),
-            #                                             end = strategy.get(STRATEGY.END),
-            #                                             samplingfreq=samplingfreq,
-            #                                             duration=strategy.get(STRATEGY.SAMPLINGDURATION))
-            sample_concs = df_timeseries.multiply(self.flows, axis="index")
-            sample_concs = sample_concs.div(self.flows.mean(), axis="index").loc[samplingindex,:].mean()
-
-        elif kind == "volume":
-            # samplingindex = self.sampling_index_volume(start = strategy.get(STRATEGY.START),
-            #                                             end = strategy.get(STRATEGY.END),
-            #                                             samplecount=strategy.get(STRATEGY.SAMPLECOUNT),
-            #                                             duration=strategy.get(STRATEGY.SAMPLINGDURATION))
-            sample_concs = df_timeseries.loc[samplingindex,:].mean()
-
-        elif kind == "grab":
-            # samplingtime = dt.datetime.combine(df_timeseries.index[0].date(), strategy.get(STRATEGY.SAMPLINGTIME))
-            # samplingindex = Sampler.get_sampling_times(starttime=samplingtime,
-            #                                            duration=strategy.get(STRATEGY.SAMPLINGDURATION))
-            sample_concs = df_timeseries.loc[samplingindex,:].mean()
-
-        else:
-            print("strategy requires key 'kind'")
-            return False
-
+        sample_concs = df_timeseries.loc[samplingindex,:].mean()
         sample_concs.rename("concentration", inplace=True)
         return sample_concs
     
