@@ -4,6 +4,7 @@ import numpy as np
 from environment import Environment, DirectedTree, PACKET, CONSTITUENT, DirectedTree, HYDRAULICS, GROUP, DEFAULT
 from prouter import Router
 from matplotlib.patches import Rectangle, Circle
+from matplotlib.ticker import AutoMinorLocator
 from matplotlib.collections import PatchCollection
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
@@ -64,7 +65,12 @@ STRATEGIES = {"A":{"kind":"time",
               "J":{"kind":"grab",
                    "samplecount":1,
                    "start-time":dt.time(hour=12, minute=0),
-                   "sampledtime":dt.timedelta(minutes=4)}}
+                   "sampledtime":dt.timedelta(minutes=4)},
+              "K":{"kind": "time",
+                   "samplecount": 24,
+                   "volume": 250,
+                   "end-time": dt.time(hour=0, minute=0),
+                   "sampledtime": dt.timedelta(minutes=72)}}
 
 
 class STRATEGY:
@@ -82,11 +88,13 @@ class STRATEGY:
     COMPOSITE = "composite"
     SAMPLEDTIME = "sampledtime"
     SAMPLETIMES = "sampletimes"
+    SAMPLEWEIGHTS = "sampleweights"
 
 class WEIGHTING:
     VOLUME = "volume"
     FLOW = "flow"
     TIME = "time"
+    GRAB = "grab"
 
 class Sampler:
     def __init__(self, strategies=None):
@@ -169,7 +177,7 @@ class Sampler:
             print("no endtime given for strategy. Endtime of 24:00 used")
             endtime = pd.to_datetime("2000-01-02 00:00:00")
         # add 1 day if endtime equals starttime
-        starttime = Sampler.get_starttime_from_strategy(strategy)
+        starttime = self.get_starttime_from_strategy(strategy)
         if endtime == starttime:
             endtime = endtime + dt.timedelta(days=1)
         return endtime
@@ -194,13 +202,47 @@ class Sampler:
 
 
     def get_samplingfreq_from_strategy(self, strategy):
+        """
+        calculates samplingfrequency from sampling window (end - start) and samplecount in 10S resolution
+        Args:
+            strategy (dict): must contain start, end, samplecount
+
+        Returns:
+            string
+        """
         start = self.get_starttime_from_strategy(strategy)
         end = self.get_endtime_from_strategy(strategy)
-        # sampling time window in hours
-        window_hours = np.around((end - start).total_seconds() / 3600, 2)
+        samplecount = strategy.get(STRATEGY.SAMPLECOUNT)
+        # sampling time window in seconds
+        window_hours = np.around((end - start).total_seconds(), 0)
         # calculate sampling frequency as sampled time window / number of samples
-        samplingfreq = f"{10 * np.around((window_hours * 3600) / (10 * samplecount))}S"  # calculate sampling frequency in 10S steps
-        # calculate sampled time of one sample by dividing sampled time / number of samples
+        # calculate sampling frequency in 10S steps
+        samplingfreq = f"{10 * np.around((window_hours) / (10 * samplecount))}S"
+        return samplingfreq
+    
+    
+    def get_samplingduration_from_strategy(self, strategy):
+        """
+        checks strategy for sampling duration, if not calculated yet, it calculates it and returns it
+        Args:
+            strategy (dict): must contain: samplecount and sampledtime
+
+        Returns:
+            dt.timedelta
+        """
+        duration = strategy.get(STRATEGY.SAMPLINGDURATION)
+        
+        if type(duration) is not dt.timedelta:
+            samplecount = strategy.get(STRATEGY.SAMPLECOUNT)
+            sampledtime = strategy.get(STRATEGY.SAMPLEDTIME)
+
+            if type(sampledtime) is not dt.timedelta:
+                sampledtime = dt.timedelta(seconds=sampledtime)
+                duration = sampledtime / samplecount
+                
+            strategy[STRATEGY.SAMPLINGDURATION] = duration
+        
+        return duration
 
     @staticmethod
     def get_sampling_times(starttime, duration, timeindexfreq="10S"):
@@ -220,10 +262,47 @@ class Sampler:
         return pd.date_range(starttime, periods=nsteps, freq=timeindexfreq)
 
 
+    def calculate_sampleweights(self, strategy):
+        """
+        calculates sampleweights, by which to weight each sample in composite sample
+        Args:
+            strategy (dict): must contain kind, sampletimes
+
+        Returns:
+            pd.Series: weights of length of sampletimes with mean of 1
+        """
+        kind = strategy.get(STRATEGY.KIND)
+        sampletimes = strategy.get(STRATEGY.SAMPLETIMES)
+
+        if kind == WEIGHTING.FLOW:
+            weights = self.flows.loc[sampletimes]
+            weights = 1 + (weights - weights.mean()) / (weights.max() - weights.min())
+
+        elif kind == WEIGHTING.TIME or kind == WEIGHTING.VOLUME:
+            weights = pd.Series(np.ones(len(sampletimes)), name="weights")
+        
+        elif kind == WEIGHTING.GRAB:
+            weights = pd.Series([1], name="weights")
+
+        else:
+            raise ValueError(f"strategy kind needs to be of different type than {type(kind)}")
+
+        return weights
+
+
     def calculate_sampletimes(self, strategy):
+        """
+        calculates the times at which a new sample for the composite sample is taken
+        Args:
+            strategy (dict): must contain: kind, start, end, samplecount
+
+        Returns:
+            pd.DateRange: Daterange with starttimes of samples
+        """
         kind = strategy.get(STRATEGY.KIND)
         start = self.get_starttime_from_strategy(strategy)
-        end = self.get_starttime_from_strategy()
+        end = self.get_endtime_from_strategy(strategy)
+        samplecount = strategy.get(STRATEGY.SAMPLECOUNT)
 
         if kind == WEIGHTING.TIME or kind == WEIGHTING.FLOW:
             samplingfreq = self.get_samplingfreq_from_strategy(strategy)
@@ -233,7 +312,13 @@ class Sampler:
             samplecount = self.get_samplecount_from_strategy(strategy)
             flows = self.flows[start:end]
             # date = flows.index[0].date()
-            starttimes = (flows.cumsum()//(flows.sum()/(samplecount-1))).drop_duplicates().index
+            starttimes = (flows.cumsum()//(flows.sum()/(samplecount))).drop_duplicates().index[:-1]
+            
+        elif kind == WEIGHTING.GRAB:
+            starttimes = pd.Series([start], name="sampletimes")
+
+        else:
+            raise ValueError(f"strategy kind needs to be of different type than {type(kind)}")
 
         # check if samplecount matches starttimes
         if samplecount is None:
@@ -243,6 +328,29 @@ class Sampler:
                 raise ValueError("The resulting sampling index does not match the samplecount")
 
         return starttimes
+
+
+    def calculate_samplingindex(self, strategy, timeindexfreq="10S"):
+        """
+        Calculates samplingindex from the sampletimes and sampleweights
+        Args:
+            strategy (dict): must contain sampletimes, sampleweights and duration
+            timeindexfreq: timestep resolution of timeseries
+
+        Returns:
+            pd.DatetimeIndex: index which is sampled of timeseries
+        """
+        sampletimes = strategy.get(STRATEGY.SAMPLETIMES)
+        sampleweights = strategy.get(STRATEGY.SAMPLEWEIGHTS)
+        duration = self.get_samplingduration_from_strategy(strategy)
+
+        sampling_index = []
+        
+        durations = sampleweights * duration
+        for dur, time in zip(durations, sampletimes):
+            sampling_index += Sampler.get_sampling_times(time, dur, timeindexfreq).to_list()
+
+        return pd.DatetimeIndex(sampling_index)
 
 
     def sampling_index_time(self, start, end, samplingfreq, samplecount=None, duration=dt.timedelta(seconds=60), timeindexfreq="10S"):
@@ -360,44 +468,38 @@ class Sampler:
         # calculate sampling frequency as sampled time window / number of samples
         samplingfreq = f"{10 * np.around((window_hours * 3600) / (10 * samplecount))}S" # calculate sampling frequency in 10S steps
         # calculate sampled time of one sample by dividing sampled time / number of samples
-        sampleduration = sampledtime.total_seconds() / samplecount # the case of grab sample uses sampled time
+        strategy[STRATEGY.SAMPLINGDURATION] = sampledtime.total_seconds() / samplecount # the case of grab sample uses sampled time
 
-        sampletimes = self.calculate_sampletimes(strategy)
-        strategy[STRATEGY.SAMPLETIMES] = sampletimes
+        strategy[STRATEGY.SAMPLETIMES] = self.calculate_sampletimes(strategy)
+        strategy[STRATEGY.SAMPLEWEIGHTS] = self.calculate_sampleweights(strategy)
+        samplingindex = self.calculate_samplingindex(strategy)
 
-        if kind == "time":
-            samplingindex = self.sampling_index_time(start=starttime,
-                                                        end=endtime,
-                                                        samplingfreq=samplingfreq,
-                                                        duration=sampleduration)
-        elif kind == "flow":
-            samplingindex = self.sampling_index_flow(start=starttime,
-                                                        end=endtime,
-                                                        samplingfreq=samplingfreq,
-                                                        duration=sampleduration)
-        elif kind == "volume":
-            samplingindex = self.sampling_index_volume(start=starttime,
-                                                       end=endtime,
-                                                       samplecount=strategy.get(STRATEGY.SAMPLECOUNT),
-                                                       duration=sampleduration)
-        elif kind == "grab":
-            samplingindex = Sampler.get_sampling_times(starttime=starttime,
-                                                       duration=sampledtime)
-        else:
-            raise ValueError("strategy requires key 'kind'")
-        # prepare metadata
-        smeta = {STRATEGY.SAMPLECOUNT: samplecount,
-                 STRATEGY.SAMPLEDTIME: sampledtime,
-                 "kind": strategy["kind"],
-                 STRATEGY.SAMPLINGDURATION: sampleduration,
-                 STRATEGY.START: starttime,
-                 STRATEGY.END: endtime}
+        # if kind == "time":
+        #     samplingindex = self.sampling_index_time(start=starttime,
+        #                                                 end=endtime,
+        #                                                 samplingfreq=samplingfreq,
+        #                                                 duration=sampleduration)
+        # elif kind == "flow":
+        #     samplingindex = self.sampling_index_flow(start=starttime,
+        #                                                 end=endtime,
+        #                                                 samplingfreq=samplingfreq,
+        #                                                 duration=sampleduration)
+        # elif kind == "volume":
+        #     samplingindex = self.sampling_index_volume(start=starttime,
+        #                                                end=endtime,
+        #                                                samplecount=strategy.get(STRATEGY.SAMPLECOUNT),
+        #                                                duration=sampleduration)
+        # elif kind == "grab":
+        #     samplingindex = Sampler.get_sampling_times(starttime=starttime,
+        #                                                duration=sampledtime)
+        # else:
+        #     raise ValueError("strategy requires key 'kind'")
 
         # check if samplingindex matches sampled time
         if abs(dt.timedelta(seconds=len(samplingindex) * 10) - sampledtime) > dt.timedelta(minutes=1):
             raise ValueError("calculated samplingindex is off more than 1 minute from supposed sampled time")
 
-        return samplingindex, smeta
+        return samplingindex, strategy
 
 
     def sample(self, df_timeseries, strategy):
@@ -421,34 +523,34 @@ class Sampler:
         samplingindex, smeta = self.sampling_index(strategy)
         sample_concs = df_timeseries.loc[samplingindex,:].mean()
         sample_concs.rename("concentration", inplace=True)
-        return sample_concs
+        return sample_concs, smeta
     
-    def plot_strategy(self, strategy, ax=None, y0=0, height=1, style="circle", legend=True):
+    def plot_strategy(self, strategy, ax=None, y0=0, hmax=1.0, h0=0.5, legend=True):
         plotting = 0 # variable to store whether plot is returned or axes is assigned
         if ax is None:
             fig, ax = plt.subplots()
             plotting = 1
             
         sampling_index, smeta = self.sampling_index(strategy)
+        sampleweights = smeta.get(STRATEGY.SAMPLEWEIGHTS).values
+        sampletimes = smeta.get(STRATEGY.SAMPLETIMES).values
 
-        if style == "circle":
-            for indextime in sampling_index.values:
-                start = mdates.date2num(pd.to_datetime(indextime))
-                end = mdates.date2num(pd.to_datetime(indextime) + dt.timedelta(seconds=10))
+        h0 = h0 * hmax
 
-                circ = Circle((start, y0), width, height, color="mistyrose")
-        if style == "rectangle":
-            for indextime in sampling_index.values:
-                start = mdates.date2num(pd.to_datetime(indextime))
-                end = mdates.date2num(pd.to_datetime(indextime) + dt.timedelta(seconds=10))
-                width = end - start
-                rect = Rectangle((start, y0), width, height, color="mistyrose")
-                ax.add_patch(rect)
+        for sampletime, sampleweight in zip(sampletimes, sampleweights):
+            start = mdates.date2num(pd.to_datetime(sampletime))
+            end = mdates.date2num(pd.to_datetime(sampletime) + dt.timedelta(seconds=120))
+            width = end - start
+            height = h0 * sampleweight
+            rect = Rectangle((start, y0+hmax/2-height/2), width, height, color="mistyrose")
+            ax.add_patch(rect)
+            
         # assign date locator / formatter to the x-axis to get proper labels
         locator = mdates.AutoDateLocator(minticks=3)
         formatter = mdates.DateFormatter('%H:%M')#locator
         ax.xaxis.set_major_locator(locator)
         ax.xaxis.set_major_formatter(formatter)
+        ax.xaxis.set_minor_locator(AutoMinorLocator(n=3))
         ax.set(xlim=[mdates.date2num(pd.to_datetime("2000-01-01 00:00:00")),
                          mdates.date2num(pd.to_datetime("2000-01-02 00:00:00"))])
         # add strategy metadata
@@ -515,6 +617,10 @@ def main():
             strategy = STRATEGIES.get(sname)
             sampler.plot_strategy(strategy, axs[3], y0=i, legend=False)
             axs[3].set(ylim=[0,3], yticks=[0.5, 1.5, 2.5], yticklabels=["a)","b)","c)"])
+            axs[3].yaxis.set_minor_locator(AutoMinorLocator(n=2))
+            axs[3].grid(axis="y", which="minor")
+            axs[3].grid(axis="x", which="major")
+
             # sample and plot samples
             samples = sampler.sample(df_timeseries, strategy)
             temp = df_means.join(samples)
