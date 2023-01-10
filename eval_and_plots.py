@@ -14,7 +14,7 @@ from matplotlib.ticker import AutoMinorLocator
 toaster = ToastNotifier()
 
 FDIR = Path(r"C:\Users\albert\Documents\SWMMpulse")
-RUNNR = 1
+RUNNR = 2
 DTINDEX = pd.date_range("2000-01-01", periods=8640, freq="10S")
 
 
@@ -134,7 +134,7 @@ def read_timeseries(dffiles):
 
 def eval_plot(dffiles, df_timeseries, sampler, plot_data=None):
     title = plot_data.get("plot_title")
-    axtitles = plot_data.get("ax_titles")
+    axtitles = plot_data.get("axtitles")
     strategies = plot_data.get("strategies")
     save_loc = plot_data.get("save_location")
     plot_name = plot_data.get("plot_name")
@@ -151,8 +151,9 @@ def eval_plot(dffiles, df_timeseries, sampler, plot_data=None):
         df_samples = df_samples.join(dffiles.set_index("simID")["infection rate"])
         # store samples, sampletimes and weights in parquet files
         df_samples.to_parquet(save_loc / f"{plot_name}_{name}_samples.parquet")
-        df_s = pd.DataFrame([smeta.get(STRATEGY.SAMPLETIMES), smeta.get(STRATEGY.SAMPLEWEIGHTS)])
-        df_s.T.to_parquet(save_loc / f"{plot_name}_{name}_strategy.parquet")
+        df_s = pd.DataFrame(smeta.get(STRATEGY.SAMPLETIMES)).join(smeta.get(STRATEGY.SAMPLEWEIGHTS))
+        df_s.columns = df_s.columns.astype("string")
+        df_s.to_parquet(save_loc / f"{plot_name}_{name}_strategy.parquet")
         # regression analysis
         df_samples, standard_error, pcc = linreg_samples(df_samples)
         # plot data
