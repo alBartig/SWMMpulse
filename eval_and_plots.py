@@ -46,10 +46,15 @@ def arange_eval_strategy(title=None):
     return fig, axs
 
 
-def prep_axs(ax, axttl=None):
+def prep_axs(ax, axttl=None, strategies=["A", "B", "C"]):
     ax[0].set(title=axttl[0], ylabel="sample concentrations [cp/l]")
     ax[1].set(title=axttl[1], xlabel="Fraction of shedding people in the catchment [-]")
     ax[2].set(title=axttl[2])
+
+    ax[3].set(ylim=[0, 3], yticks=[0.5, 1.5, 2.5], yticklabels=[s+":" for s in strategies])
+    ax[3].yaxis.set_minor_locator(AutoMinorLocator(n=2))
+    ax[3].grid(axis="y", which="minor")
+    ax[3].grid(axis="x", which="major")
     return ax
 
 
@@ -93,9 +98,9 @@ def read_processed_file_directory():
     for file in files:
         flist.append(file.replace(".", "_").split("_") + [file])
     dffiles = pd.DataFrame.from_records(flist,
-                                        columns=["catchment", "infection rate", "step", "simID", "file-extension",
+                                        columns=["catchment", "step", "simID", "file-extension",
                                                  "filename"])
-    dffiles["infection rate"] = dffiles["infection rate"].astype(int) * 10 ** (-3)
+    #dffiles["infection rate"] = dffiles["infection rate"].astype(int) * 10 ** (-3)
     return dffiles
 
 
@@ -131,6 +136,7 @@ def read_timeseries(dffiles):
     print("----------------reading timeseries finished---------------------")
     toaster.show_toast("Timeseries read", "All timeseries have been read into memory")
     return df_timeseries
+
 
 def eval_plot(dffiles, df_timeseries, sampler, plot_data=None):
     title = plot_data.get("plot_title")
@@ -170,6 +176,43 @@ def eval_plot(dffiles, df_timeseries, sampler, plot_data=None):
     plt.savefig(save_loc / f"{plot_name}.png", dpi=300)
     plt.savefig(save_loc / f"{plot_name}.svg")
     return None
+
+
+def replot_data(sampler, plot_data=None):
+    """
+    Uses the saved data to plot evaluation plots again
+    Args:
+        sampler (Sampler):
+        plot_data (dict):
+
+    Returns: None
+
+    """
+    title = plot_data.get("plot_title")
+    axtitles = plot_data.get("axtitles")
+    strategies = plot_data.get("strategies")
+    save_loc = plot_data.get("save_location")
+    plot_name = plot_data.get("plot_name")
+
+    fig, axs = arange_eval_strategy(title)
+
+    for k, name in enumerate(strategies):
+        # get strategy
+        strategy = STRATEGIES.get(name)
+        df_s = pd.read_parquet(save_loc / f"{plot_name}_{name}_strategy.parquet")
+        df_samples = pd.read_parquet(save_loc / f"{plot_name}_{name}_samples.parquet")
+        df_samples, standard_error, pcc = linreg_samples(df_samples)
+        # plot data
+        plot_samples(df_samples, axs[k])
+        # plot strategy
+        sampler.plot_strategy(strategy, axs[3], y0=k, legend=False)
+
+    prep_axs(axs, axtitles, strategies)
+
+    plt.savefig(save_loc / f"replotted_{plot_name}.png", dpi=300)
+    plt.savefig(save_loc / f"replotted_{plot_name}.svg")
+    return None
+
 
 def eval_weighting(dffiles, df_timeseries, sampler):
     selected_strategies = ["A", "B", "C"]
