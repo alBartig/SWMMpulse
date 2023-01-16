@@ -17,6 +17,32 @@ FDIR = Path(r"C:\Users\albert\Documents\SWMMpulse")
 RUNNR = 2
 DTINDEX = pd.date_range("2000-01-01", periods=8640, freq="10S")
 
+PLOTS = [{"strategies": ["A", "I", "J"], # GRAB SAMPLES
+          "plot_title": "Evaluation of grab sampling",
+          "axtitles": ["Reference Regime", "Grab sampling: 9:00 am", "Grab sampling: 12:00 am"],
+          "save_location": FDIR / "plots" / "grfk_grab_samples",
+          "plot_name": "impact_grab_sampling"},
+         {"strategies": ["A", "B", "C"], # WEIGHTING METHODS
+          "plot_title": "sample concentrations over infection rates by weighting methods",
+          "axtitles": ["time-weighted", "flow-weighted", "volume-weighted"],
+          "save_location": FDIR/"plots"/"grfk_weighting_method",
+          "plot_name":"imcact_weighting_method"},
+         {"strategies": ["A", "D", "E"], # SAMPLE COUNT
+          "plot_title": "sample concentrations over infection rates by sample count",
+          "axtitles": ["24 samples / day", "48 samples / day", "72 samples / day"],
+          "save_location": FDIR / "plots" / "grfk_samplecount",
+          "plot_name": "impact_samplecount"},
+         {"strategies": ["A", "F", "G"], # SAMPLING WINDOW
+          "plot_title": "sample concentrations over infection rates by chosen time window",
+          "axtitles": ["24 hours: 0:00 - 24:00", "12 hours: 4:00 - 16:00", "6 hours: 5:00 - 11:00"],
+          "save_location": FDIR / "plots" / "grfk_sampling_period",
+          "plot_name": "impact_sampling_period"},
+         {"strategies": ["A", "H", "K"], # SAMPLED TIME
+          "plot_title": "sample concentrations over sampled time",
+          "axtitles": ["24 min sampled time", "48 min sampled time", "72 min sampled time"],
+          "save_location": FDIR / "plots" / "grfk_sampledtime",
+          "plot_name": "impact_sampledtime"}]
+
 
 def linreg_samples(df):
     # Prepare Data
@@ -288,7 +314,7 @@ def eval_sampledtime(dffiles, df_timeseries, sampler):
     return None
 
 
-def main():
+def evaluate_sim_data():
     # read filelist with processed timeseries
     dffiles = read_processed_file_directory()
     # calculate actual fraction of shedding population
@@ -298,17 +324,24 @@ def main():
 
     # prepare sampler
     sampler = prepare_sampler()
+    # iterate through plotting dicts and evaluate each
+    for plot_dict in PLOTS:
+        eval_plot(dffiles, df_timeseries, plot_dict)
 
-    # evaluate weighting methods
-    eval_weighting(dffiles, df_timeseries, sampler)
-    # evaluate sample counts
-    eval_samplecount(dffiles, df_timeseries, sampler)
-    # eval sampling window
-    eval_samplingwindow(dffiles, df_timeseries, sampler)
-    # eval grab sample
-    eval_grab_sample(dffiles, df_timeseries, sampler)
-    # eval sampled time
-    eval_sampledtime(dffiles, df_timeseries, sampler)
+    return None
+
+
+def replot_evaluations():
+    # prepare sampler
+    sampler = prepare_sampler()
+    # iterate through plotting dicts and replot evaluations
+    for plot_dict in PLOTS:
+        replot_data(sampler, plot_data=plot_dict)
+
+    return None
+
+def main():
+    replot_evaluations()
 
 
 if __name__ == "__main__":
