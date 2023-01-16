@@ -238,7 +238,8 @@ class Sampler:
 
             if type(sampledtime) is not dt.timedelta:
                 sampledtime = dt.timedelta(seconds=sampledtime)
-                duration = sampledtime / samplecount
+
+            duration = sampledtime / samplecount
                 
             strategy[STRATEGY.SAMPLINGDURATION] = duration
         
@@ -534,15 +535,16 @@ class Sampler:
         sampling_index, smeta = self.sampling_index(strategy)
         sampleweights = smeta.get(STRATEGY.SAMPLEWEIGHTS).values
         sampletimes = smeta.get(STRATEGY.SAMPLETIMES).values
-
-        h0 = h0 * hmax
+        samplingduration = self.get_samplingduration_from_strategy(strategy)
+        
+        h0 = h0 * hmax #* samplingduration / dt.timedelta(seconds=60)
 
         for sampletime, sampleweight in zip(sampletimes, sampleweights):
             start = mdates.date2num(pd.to_datetime(sampletime))
             end = mdates.date2num(pd.to_datetime(sampletime) + dt.timedelta(seconds=120))
             width = end - start
             height = h0 * sampleweight
-            rect = Rectangle((start, y0+hmax/2-height/2), width, height, color="mistyrose")
+            rect = Rectangle((start, y0+hmax/2-height/2), width, height, color="lightcoral")
             ax.add_patch(rect)
             
         # assign date locator / formatter to the x-axis to get proper labels

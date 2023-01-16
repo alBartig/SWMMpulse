@@ -21,7 +21,8 @@ PLOTS = [{"strategies": ["A", "I", "J"], # GRAB SAMPLES
           "plot_title": "Evaluation of grab sampling",
           "axtitles": ["Reference Regime", "Grab sampling: 9:00 am", "Grab sampling: 12:00 am"],
           "save_location": FDIR / "plots" / "grfk_grab_samples",
-          "plot_name": "impact_grab_sampling"},
+          "plot_name": "impact_grab_sampling",
+          "ylim": [0,20]},
          {"strategies": ["A", "B", "C"], # WEIGHTING METHODS
           "plot_title": "sample concentrations over infection rates by weighting methods",
           "axtitles": ["time-weighted", "flow-weighted", "volume-weighted"],
@@ -36,7 +37,8 @@ PLOTS = [{"strategies": ["A", "I", "J"], # GRAB SAMPLES
           "plot_title": "sample concentrations over infection rates by chosen time window",
           "axtitles": ["24 hours: 0:00 - 24:00", "12 hours: 4:00 - 16:00", "6 hours: 5:00 - 11:00"],
           "save_location": FDIR / "plots" / "grfk_sampling_period",
-          "plot_name": "impact_sampling_period"},
+          "plot_name": "impact_sampling_period",
+          "ylim": [0, 16]},
          {"strategies": ["A", "H", "K"], # SAMPLED TIME
           "plot_title": "sample concentrations over sampled time",
           "axtitles": ["24 min sampled time", "48 min sampled time", "72 min sampled time"],
@@ -72,27 +74,28 @@ def arange_eval_strategy(title=None):
     return fig, axs
 
 
-def prep_axs(ax, axttl=None, strategies=["A", "B", "C"]):
-    ax[0].set(title=axttl[0], ylabel="sample concentrations [cp/l]")
-    ax[1].set(title=axttl[1], xlabel="Fraction of shedding people in the catchment [-]")
-    ax[2].set(title=axttl[2])
+def prep_axs(ax, axttl=None, strategies=["A", "B", "C"], prefix="VC-"):
+    ax[0].set(title=f"{prefix+strategies[0]:<4}: {axttl[0]:<20}", ylabel="sample concentrations [cp/l]")
+    ax[1].set(title=f"{prefix+strategies[1]:<4}: {axttl[1]:<20}", xlabel="Fraction of shedding people in the catchment [-]")
+    ax[2].set(title=f"{prefix+strategies[2]:<4}: {axttl[2]:<20}")
 
-    ax[3].set(ylim=[0, 3], yticks=[0.5, 1.5, 2.5], yticklabels=[s+":" for s in strategies])
+    ax[3].set(ylim=[0, 3], yticks=[0.5, 1.5, 2.5], yticklabels=["VC-"+s+":" for s in strategies])
     ax[3].yaxis.set_minor_locator(AutoMinorLocator(n=2))
-    ax[3].grid(axis="y", which="minor")
-    ax[3].grid(axis="x", which="major")
+    ax[3].grid(axis="y", which="minor", zorder=0)
+    ax[3].grid(axis="x", which="major", zorder=0)
     return ax
 
 
-def plot_samples(df, ax, ylim=[0, 8]):
+def plot_samples(df, ax, **kwargs):
     # plot data
     # plot linear regression
-    ax.plot("infection rate", "pred_concentration", data=df, linewidth=2, zorder=10, linestyle="dashed")
+    ax.plot("infection rate", "pred_concentration", data=df, linewidth=2, zorder=10, linestyle="solid")
     # plot samples
-    ax.scatter(x="infection rate", y="concentration", data=df, alpha=0.3, marker="+", s=30, zorder=5, linewidths=1)
+    #ax.scatter(x="infection rate", y="concentration", data=df, alpha=0.3, marker="+", s=30, zorder=5, linewidths=1)
+    ax.scatter(x="infection rate", y="concentration", data=df, alpha=0.15, marker=".", s=5, zorder=5, linewidths=1)
     # plot area between standard error
     ax.fill_between(df["infection rate"], df["pred_concentration_upper"], df["pred_concentration_lower"],
-                    alpha=0.2, zorder=0)
+                    alpha=0.2, zorder=0, color="lightcoral")
     # prepare legend
     # prepare text
     standard_error = np.std(df["errors"]) / df["concentration"].mean()
@@ -104,6 +107,7 @@ def plot_samples(df, ax, ylim=[0, 8]):
     ax.text(0.05, 0.95, textstr, transform=ax.transAxes, fontsize=9,
             verticalalignment='top', bbox=props, zorder=15)
     # additional ax settings
+    ylim = kwargs.get("ylim", [0, 8])
     ax.set(xlim=[0.002,0.01], ylim=ylim, xticks=np.arange(0.002, 0.012, 0.002))
 
 
@@ -197,7 +201,7 @@ def eval_plot(dffiles, df_timeseries, sampler, plot_data=None):
         axs[3].grid(axis="y", which="minor")
         axs[3].grid(axis="x", which="major")
 
-    prep_axs(axs, axtitles)
+    prep_axs(axs, axtitles, strategies)
 
     plt.savefig(save_loc / f"{plot_name}.png", dpi=300)
     plt.savefig(save_loc / f"{plot_name}.svg")
@@ -229,7 +233,7 @@ def replot_data(sampler, plot_data=None):
         df_samples = pd.read_parquet(save_loc / f"{plot_name}_{name}_samples.parquet")
         df_samples, standard_error, pcc = linreg_samples(df_samples)
         # plot data
-        plot_samples(df_samples, axs[k])
+        plot_samples(df_samples, axs[k], **plot_data)
         # plot strategy
         sampler.plot_strategy(strategy, axs[3], y0=k, legend=False)
 
