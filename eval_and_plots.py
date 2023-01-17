@@ -32,7 +32,8 @@ PLOTS = [{"strategies": ["A", "I", "J"], # GRAB SAMPLES
           "plot_title": "sample concentrations over infection rates by sample count",
           "axtitles": ["24 samples / day", "48 samples / day", "72 samples / day"],
           "save_location": FDIR / "plots" / "grfk_samplecount",
-          "plot_name": "impact_samplecount"},
+          "plot_name": "impact_samplecount",
+          "scaling":[1, 0.5, 1/3]},
          {"strategies": ["A", "F", "G"], # SAMPLING WINDOW
           "plot_title": "sample concentrations over infection rates by chosen time window",
           "axtitles": ["24 hours: 0:00 - 24:00", "12 hours: 4:00 - 16:00", "6 hours: 5:00 - 11:00"],
@@ -43,7 +44,8 @@ PLOTS = [{"strategies": ["A", "I", "J"], # GRAB SAMPLES
           "plot_title": "sample concentrations over sampled time",
           "axtitles": ["24 min sampled time", "48 min sampled time", "72 min sampled time"],
           "save_location": FDIR / "plots" / "grfk_sampledtime",
-          "plot_name": "impact_sampledtime"}]
+          "plot_name": "impact_sampledtime",
+          "scaling": [1/3, 2/3, 1]}]
 
 
 def linreg_samples(df):
@@ -65,8 +67,10 @@ def linreg_samples(df):
     return df, standard_error, pcc
 
 
-def arange_eval_strategy(title=None):
-    fig = plt.figure(figsize=[8.5, 4], facecolor="white", constrained_layout=True)
+def arange_eval_strategy(**kwargs):
+    title = kwargs.get("title")
+    figsize = kwargs.get("figsize", [8.5, 4])
+    fig = plt.figure(figsize=figsize, facecolor="white", constrained_layout=True)
     axs = fig.subplot_mosaic([[0, 1, 2],
                               [3, 3, 3]],
                              gridspec_kw={'height_ratios': [3, 1]})
@@ -75,14 +79,16 @@ def arange_eval_strategy(title=None):
 
 
 def prep_axs(ax, axttl=None, strategies=["A", "B", "C"], prefix="VC-"):
-    ax[0].set(title=f"{prefix+strategies[0]:<4}: {axttl[0]:<20}", ylabel="sample concentrations [cp/l]")
-    ax[1].set(title=f"{prefix+strategies[1]:<4}: {axttl[1]:<20}", xlabel="Fraction of shedding people in the catchment [-]")
+    ax[0].set(title=f"{prefix+strategies[0]:<4}: {axttl[0]:<20}", ylabel="sample concentrations [gc/L]")
+    ax[1].set(title=f"{prefix+strategies[1]:<4}: {axttl[1]:<20}", xlabel="Fraction of people shedding the virus in the catchment [%]\n"
+                                                                         "Sampling strategy visualization:")
     ax[2].set(title=f"{prefix+strategies[2]:<4}: {axttl[2]:<20}")
+    #ax[0].grid(zorder=0, color="lightgrey")
 
     ax[3].set(ylim=[0, 3], yticks=[0.5, 1.5, 2.5], yticklabels=["VC-"+s+":" for s in strategies])
     ax[3].yaxis.set_minor_locator(AutoMinorLocator(n=2))
-    ax[3].grid(axis="y", which="minor", zorder=0)
-    ax[3].grid(axis="x", which="major", zorder=0)
+    ax[3].grid(axis="y", which="minor", color="lightgrey", zorder=0)
+    ax[3].grid(axis="x", which="major", color="lightgrey", zorder=0)
     return ax
 
 
@@ -95,7 +101,7 @@ def plot_samples(df, ax, **kwargs):
     ax.scatter(x="infection rate", y="concentration", data=df, alpha=0.15, marker=".", s=5, zorder=5, linewidths=1)
     # plot area between standard error
     ax.fill_between(df["infection rate"], df["pred_concentration_upper"], df["pred_concentration_lower"],
-                    alpha=0.2, zorder=0, color="lightcoral")
+                    alpha=0.5, zorder=0, color="lightcoral")
     # prepare legend
     # prepare text
     standard_error = np.std(df["errors"]) / df["concentration"].mean()
@@ -108,7 +114,12 @@ def plot_samples(df, ax, **kwargs):
             verticalalignment='top', bbox=props, zorder=15)
     # additional ax settings
     ylim = kwargs.get("ylim", [0, 8])
-    ax.set(xlim=[0.002,0.01], ylim=ylim, xticks=np.arange(0.002, 0.012, 0.002))
+    ax.set(xlim=[0.0002,0.01], ylim=ylim, xticks=[0.0002]+np.arange(0.002, 0.012, 0.002).tolist())
+
+    def small_formatter(x, pos):
+        return f"{x*100:3.2f}"
+
+    ax.xaxis.set_major_formatter(small_formatter)
 
 
 def prepare_sampler():
@@ -208,7 +219,7 @@ def eval_plot(dffiles, df_timeseries, sampler, plot_data=None):
     return None
 
 
-def replot_data(sampler, plot_data=None):
+def replot_data(sampler, plot_data=None, **grafics_dict):
     """
     Uses the saved data to plot evaluation plots again
     Args:
@@ -223,10 +234,11 @@ def replot_data(sampler, plot_data=None):
     strategies = plot_data.get("strategies")
     save_loc = plot_data.get("save_location")
     plot_name = plot_data.get("plot_name")
+    scaling = plot_data.get("scaling", [1, 1, 1])
 
-    fig, axs = arange_eval_strategy(title)
+    fig, axs = arange_eval_strategy(title=title, **grafics_dict)
 
-    for k, name in enumerate(strategies):
+    for k, (name, scalar) in enumerate(zip(strategies, scaling)):
         # get strategy
         strategy = STRATEGIES.get(name)
         df_s = pd.read_parquet(save_loc / f"{plot_name}_{name}_strategy.parquet")
@@ -235,11 +247,11 @@ def replot_data(sampler, plot_data=None):
         # plot data
         plot_samples(df_samples, axs[k], **plot_data)
         # plot strategy
-        sampler.plot_strategy(strategy, axs[3], y0=k, legend=False)
+        sampler.plot_strategy(strategy, axs[3], y0=k, scaling=scalar, legend=False)
 
     prep_axs(axs, axtitles, strategies)
 
-    plt.savefig(save_loc / f"replotted_{plot_name}.png", dpi=300)
+    plt.savefig(save_loc / f"replotted_{plot_name}.png", dpi=grafics_dict.get("dpi", 300))
     plt.savefig(save_loc / f"replotted_{plot_name}.svg")
     return None
 

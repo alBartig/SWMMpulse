@@ -69,8 +69,15 @@ STRATEGIES = {"A":{"kind":"time",
               "K":{"kind": "time",
                    "samplecount": 24,
                    "volume": 250,
+                   "start-time":dt.time(hour=0, minute=0),
                    "end-time": dt.time(hour=0, minute=0),
-                   "sampledtime": dt.timedelta(minutes=72)}}
+                   "sampledtime": dt.timedelta(minutes=72)},
+              "Y":{"kind": "time",
+                   "samplecount": 72,
+                   "volume": 250,
+                   "start-time":dt.time(hour=5, minute=0),
+                   "end-time": dt.time(hour=11, minute=0),
+                   "sampledtime": dt.timedelta(minutes=24)}}
 
 
 class STRATEGY:
@@ -526,7 +533,7 @@ class Sampler:
         sample_concs.rename("concentration", inplace=True)
         return sample_concs, smeta
     
-    def plot_strategy(self, strategy, ax=None, y0=0, hmax=1.0, h0=0.5, legend=True):
+    def plot_strategy(self, strategy, ax=None, y0=0, hmax=1.0, h0=0.5, legend=True, scaling=1):
         plotting = 0 # variable to store whether plot is returned or axes is assigned
         if ax is None:
             fig, ax = plt.subplots()
@@ -535,16 +542,15 @@ class Sampler:
         sampling_index, smeta = self.sampling_index(strategy)
         sampleweights = smeta.get(STRATEGY.SAMPLEWEIGHTS).values
         sampletimes = smeta.get(STRATEGY.SAMPLETIMES).values
-        samplingduration = self.get_samplingduration_from_strategy(strategy)
         
-        h0 = h0 * hmax #* samplingduration / dt.timedelta(seconds=60)
+        h0 = h0 * hmax * scaling
 
         for sampletime, sampleweight in zip(sampletimes, sampleweights):
             start = mdates.date2num(pd.to_datetime(sampletime))
             end = mdates.date2num(pd.to_datetime(sampletime) + dt.timedelta(seconds=120))
             width = end - start
             height = h0 * sampleweight
-            rect = Rectangle((start, y0+hmax/2-height/2), width, height, color="lightcoral")
+            rect = Rectangle((start, y0+hmax/2-height/2), width, height, color="lightcoral", zorder=10)
             ax.add_patch(rect)
             
         # assign date locator / formatter to the x-axis to get proper labels
