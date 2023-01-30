@@ -17,7 +17,7 @@ FDIR = Path(r"C:\Users\albert\Documents\SWMMpulse")
 RUNNR = 2
 DTINDEX = pd.date_range("2000-01-01", periods=8640, freq="10S")
 
-PLOTS = [{"strategies": ["A", "I", "J"], # GRAB SAMPLES
+PLOTS = [{"strategies": ["A", "J", "K"], # GRAB SAMPLES
           "plot_title": "Evaluation of grab sampling",
           "axtitles": ["Reference Regime", "Grab sampling: 9:00 am", "Grab sampling: 12:00 am"],
           "save_location": FDIR / "plots" / "grfk_grab_samples",
@@ -40,7 +40,7 @@ PLOTS = [{"strategies": ["A", "I", "J"], # GRAB SAMPLES
           "save_location": FDIR / "plots" / "grfk_sampling_period",
           "plot_name": "impact_sampling_period",
           "ylim": [0, 16]},
-         {"strategies": ["A", "H", "K"], # SAMPLED TIME
+         {"strategies": ["A", "H", "I"], # SAMPLED TIME
           "plot_title": "sample concentrations over sampled time",
           "axtitles": ["24 min sampled time", "48 min sampled time", "72 min sampled time"],
           "save_location": FDIR / "plots" / "grfk_sampledtime",
@@ -98,15 +98,16 @@ def plot_samples(df, ax, **kwargs):
     ax.plot("infection rate", "pred_concentration", data=df, linewidth=2, zorder=10, linestyle="solid")
     # plot samples
     #ax.scatter(x="infection rate", y="concentration", data=df, alpha=0.3, marker="+", s=30, zorder=5, linewidths=1)
-    ax.scatter(x="infection rate", y="concentration", data=df, alpha=0.15, marker=".", s=5, zorder=5, linewidths=1)
+    ax.scatter(x="infection rate", y="concentration", data=df, alpha=0.13,
+               marker=".", s=5, zorder=0, linewidths=1, rasterized=True)
     # plot area between standard error
     ax.fill_between(df["infection rate"], df["pred_concentration_upper"], df["pred_concentration_lower"],
-                    alpha=0.5, zorder=0, color="lightcoral")
+                    alpha=0.3, zorder=5, color="lightcoral")
     # prepare legend
     # prepare text
     standard_error = np.std(df["errors"]) / df["concentration"].mean()
     pcc = df["infection rate"].corr(df["concentration"])
-    textstr = f"{'RMSE:':<5}{standard_error:>6.2f}\n{'PCC:':<5}{pcc:>8.2f}"
+    textstr = f"{'NRMSE:':<6}{standard_error:>6.2f}\n{'PCC:':<7}{pcc:>8.2f}"
     # these are matplotlib.patch.Patch properties
     props = dict(boxstyle='square', facecolor='mistyrose', alpha=0.5)
     # place a text box in upper left in axes coords
@@ -180,13 +181,14 @@ def read_timeseries(dffiles):
 
 
 def eval_plot(dffiles, df_timeseries, sampler, plot_data=None):
-    title = plot_data.get("plot_title")
+    #title = plot_data.get("plot_title")
     axtitles = plot_data.get("axtitles")
     strategies = plot_data.get("strategies")
     save_loc = plot_data.get("save_location")
     plot_name = plot_data.get("plot_name")
 
-    fig, axs = arange_eval_strategy(title)
+    #fig, axs = arange_eval_strategy(title)
+    fig, axs = arange_eval_strategy()
 
     for k, name in enumerate(strategies):
         # get strategy
@@ -214,7 +216,7 @@ def eval_plot(dffiles, df_timeseries, sampler, plot_data=None):
 
     prep_axs(axs, axtitles, strategies)
 
-    plt.savefig(save_loc / f"{plot_name}.png", dpi=300)
+    plt.savefig(save_loc / f"{plot_name}.png", dpi=700)
     plt.savefig(save_loc / f"{plot_name}.svg")
     return None
 
@@ -229,14 +231,15 @@ def replot_data(sampler, plot_data=None, **grafics_dict):
     Returns: None
 
     """
-    title = plot_data.get("plot_title")
+    #title = plot_data.get("plot_title")
     axtitles = plot_data.get("axtitles")
     strategies = plot_data.get("strategies")
     save_loc = plot_data.get("save_location")
     plot_name = plot_data.get("plot_name")
     scaling = plot_data.get("scaling", [1, 1, 1])
 
-    fig, axs = arange_eval_strategy(title=title, **grafics_dict)
+    #fig, axs = arange_eval_strategy(title=title, **grafics_dict)
+    fig, axs = arange_eval_strategy(**grafics_dict)
 
     for k, (name, scalar) in enumerate(zip(strategies, scaling)):
         # get strategy
