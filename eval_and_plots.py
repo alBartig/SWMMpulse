@@ -45,7 +45,14 @@ PLOTS = [{"strategies": ["A", "J", "K"], # GRAB SAMPLES
           "axtitles": ["24 min sampled time", "48 min sampled time", "72 min sampled time"],
           "save_location": FDIR / "plots" / "grfk_sampledtime",
           "plot_name": "impact_sampledtime",
-          "scaling": [1/3, 2/3, 1]}]
+          "scaling": [1/3, 2/3, 1]},
+         {"strategies": ["A", "X", "Y"],  # SAMPLED TIME
+          "plot_title": "Best results witout investing additional resources",
+          "axtitles": ["Reference scenario", "Intermediate scenario", "Most elaborate scenario"],
+          "save_location": FDIR / "plots" / "grfk_scenarios",
+          "plot_name": "impact_scenarios",
+          "scaling": [1, 1/2, 1/3]}
+         ]
 
 
 def linreg_samples(df):
@@ -186,11 +193,12 @@ def eval_plot(dffiles, df_timeseries, sampler, plot_data=None):
     strategies = plot_data.get("strategies")
     save_loc = plot_data.get("save_location")
     plot_name = plot_data.get("plot_name")
+    scaling = plot_data.get("scaling", [1, 1, 1])
 
     #fig, axs = arange_eval_strategy(title)
     fig, axs = arange_eval_strategy()
 
-    for k, name in enumerate(strategies):
+    for k, (name, scalar) in enumerate(zip(strategies, scaling)):
         # get strategy
         strategy = STRATEGIES.get(name)
         # sample timeseries
@@ -208,7 +216,7 @@ def eval_plot(dffiles, df_timeseries, sampler, plot_data=None):
         # plot data
         plot_samples(df_samples, axs[k])
         # plot strategy
-        sampler.plot_strategy(strategy, axs[3], y0=k, legend=False)
+        sampler.plot_strategy(strategy, axs[3], y0=k, legend=False, scaling=scalar)
         axs[3].set(ylim=[0, 3], yticks=[0.5, 1.5, 2.5], yticklabels=["a)", "b)", "c)"])
         axs[3].yaxis.set_minor_locator(AutoMinorLocator(n=2))
         axs[3].grid(axis="y", which="minor")
@@ -333,7 +341,7 @@ def eval_sampledtime(dffiles, df_timeseries, sampler):
     return None
 
 
-def evaluate_sim_data():
+def evaluate_scenarios(plots=PLOTS):
     # read filelist with processed timeseries
     dffiles = read_processed_file_directory()
     # calculate actual fraction of shedding population
@@ -344,8 +352,8 @@ def evaluate_sim_data():
     # prepare sampler
     sampler = prepare_sampler()
     # iterate through plotting dicts and evaluate each
-    for plot_dict in PLOTS:
-        eval_plot(dffiles, df_timeseries, plot_dict)
+    for plot_dict in plots:
+        eval_plot(dffiles, df_timeseries, sampler, plot_dict)
 
     return None
 
@@ -359,8 +367,10 @@ def replot_evaluations():
 
     return None
 
+
 def main():
-    replot_evaluations()
+    #replot_evaluations()
+    evaluate_scenarios(PLOTS[-1:])
 
 
 if __name__ == "__main__":
