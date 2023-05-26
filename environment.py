@@ -301,9 +301,9 @@ class DirectedTree:
             if linktype in inp:
                 try:
                     links += list(
-                        inp[linktype].get_dataframe(set_index=False)[["Name", "FromNode", "ToNode", "Length"]].values)
+                        inp[linktype].get_dataframe(set_index=False)[["name", "from_node", "to_node", "length"]].values)
                 except:
-                    links += list(inp[linktype].get_dataframe(set_index=False)[["Name", "FromNode", "ToNode"]].values)
+                    links += list(inp[linktype].get_dataframe(set_index=False)[["name", "from_node", "to_node"]].values)
         for i in range(len(links)):
             try:
                 links[i][3] = ("length", links[i][3])
@@ -470,8 +470,13 @@ def test_flows():
     print("finished testing sequence")
 
 
+def test_demo():
+    graph = DirectedTree.from_swmm(r"demo_swmm-inp.inp")
+
+
 def main():
-    test_flows()
+    # test_flows()
+    test_demo()
 
 
 if __name__ == '__main__':
