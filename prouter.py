@@ -85,6 +85,8 @@ class Router:
         if node is None:
             node = self.environment.graph.root
             link = self.environment.graph.get_inletlinks(node)[0]
+        elif node == self.environment.graph.root:
+            link = self.environment.graph.get_inletlinks(node)[0]
         else:
             link = self.environment.graph.get_outlets(node)[0][1]
 
